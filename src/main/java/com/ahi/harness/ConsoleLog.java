@@ -78,6 +78,9 @@ public class ConsoleLog {
         if ("DIFF".equals(stage)) {
             return "DIFF/变更预览";
         }
+        if ("VALIDATION".equals(stage)) {
+            return "VALIDATION/验证";
+        }
         return stage + "/阶段";
     }
 }

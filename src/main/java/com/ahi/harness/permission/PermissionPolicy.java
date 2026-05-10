@@ -45,13 +45,17 @@ public class PermissionPolicy {
         if (normalized.isEmpty()) {
             return PermissionDecision.deny("empty command");
         }
+        if (hasShellControlOperator(normalized)) {
+            return PermissionDecision.deny("shell control operators are blocked; run one validation command at a time");
+        }
 
         String[] blocked = {
                 "rm ", "rm-", "del ", "erase ", "rmdir ", "remove-item", "ri ",
                 "format", "shutdown", "restart-computer", "stop-computer",
                 "git reset", "git clean", "git checkout", "git switch", "git restore",
                 "set-content", "out-file", "new-item", "copy-item", "move-item",
-                "invoke-webrequest", "iwr ", "curl ", "wget "
+                "invoke-webrequest", "iwr ", "curl ", "wget ",
+                "start-process", "invoke-expression", "iex "
         };
         for (String token : blocked) {
             if (normalized.contains(token)) {
@@ -61,9 +65,11 @@ public class PermissionPolicy {
 
         String[] allowedPrefixes = {
                 "git status", "git diff", "git log", "git show",
-                "mvn test", "mvn package", "mvn -q test", "mvn -q package",
+                "mvn test", "mvn package", "mvn clean test", "mvn clean package",
+                "mvn -q test", "mvn -q package", "mvn -q clean test", "mvn -q clean package",
                 "java -version", "javac -version",
                 "npm test", "npm run", "pytest", "python -m pytest",
+                "gradle test", "gradle build", ".\\gradlew test", ".\\gradlew build",
                 "dir", "ls", "get-childitem", "rg "
         };
         for (String prefix : allowedPrefixes) {
@@ -73,5 +79,17 @@ public class PermissionPolicy {
         }
 
         return PermissionDecision.deny("command is not in the allowlist");
+    }
+
+    private boolean hasShellControlOperator(String command) {
+        return command.contains(";")
+                || command.contains("&&")
+                || command.contains("||")
+                || command.contains("|")
+                || command.contains(">")
+                || command.contains("<")
+                || command.contains("`")
+                || command.contains("\n")
+                || command.contains("\r");
     }
 }

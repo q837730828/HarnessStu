@@ -36,13 +36,14 @@ public class Main {
         registry.register(new ReadFileTool(workspace));
         registry.register(new GrepTool(workspace));
         registry.register(new EditFileTool(workspace, log));
-        registry.register(new BashTool(workspace));
+        registry.register(new BashTool(workspace, log));
 
         Conversation conversation = new Conversation();
         conversation.addSystem("You are a coding agent running inside a small Java harness. "
                 + "Use tools when you need facts from the local workspace. "
                 + "Prefer list_files, read_file, and grep before answering codebase questions. "
                 + "Before editing a file, read it first. Use edit_file with exact old_text and new_text. "
+                + "After code edits, verify with bash using safe commands such as git diff or mvn test/package, then use the results to continue or finish. "
                 + "When you have enough information, respond with a concise final answer.");
 
         DeepSeekClient model = new DeepSeekClient(

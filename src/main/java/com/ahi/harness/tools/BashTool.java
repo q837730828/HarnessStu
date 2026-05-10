@@ -3,20 +3,28 @@ package com.ahi.harness.tools;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import com.ahi.harness.ConsoleLog;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 public class BashTool implements Tool {
     private static final int MAX_CHARS = 12000;
     private final File workspace;
+    private final ConsoleLog log;
 
-    public BashTool(File workspace) {
+    public BashTool(File workspace, ConsoleLog log) {
         this.workspace = workspace;
+        this.log = log;
     }
 
     @Override
@@ -33,6 +41,8 @@ public class BashTool implements Tool {
     public ObjectNode parameters() {
         ObjectNode schema = JsonSchemas.object();
         JsonSchemas.addRequired(schema, "command", JsonSchemas.stringProperty("Command to run in PowerShell."));
+        JsonSchemas.addOptional(schema, "timeout_seconds", JsonSchemas.stringProperty("Timeout in seconds. Defaults to 60, maximum 300."));
+        JsonSchemas.addOptional(schema, "purpose", JsonSchemas.stringProperty("Short reason for running this validation command."));
         return schema;
     }
 
@@ -42,6 +52,8 @@ public class BashTool implements Tool {
         if (command.trim().isEmpty()) {
             return ToolResult.failure("command is required");
         }
+        int timeoutSeconds = parseTimeout(arguments.path("timeout_seconds").asText("60"));
+        String purpose = arguments.path("purpose").asText("");
 
         List<String> fullCommand = new ArrayList<String>();
         fullCommand.add("powershell");
@@ -53,29 +65,74 @@ public class BashTool implements Tool {
                 + "$OutputEncoding=[System.Text.UTF8Encoding]::new($false); "
                 + command);
 
+        long started = System.currentTimeMillis();
+        log.info("VALIDATION", "Run command: " + command
+                + (purpose.trim().isEmpty() ? "" : " | purpose: " + purpose)
+                + " | timeout=" + timeoutSeconds + "s");
+
         ProcessBuilder builder = new ProcessBuilder(fullCommand);
         builder.directory(workspace);
         builder.redirectErrorStream(true);
         Process process = builder.start();
 
-        StringBuilder out = new StringBuilder();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), Charset.forName("UTF-8")));
-        String line;
-        while ((line = reader.readLine()) != null) {
-            if (out.length() < MAX_CHARS) {
-                out.append(line).append('\n');
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<String> outputFuture = executor.submit(new Callable<String>() {
+            @Override
+            public String call() throws Exception {
+                StringBuilder out = new StringBuilder();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), Charset.forName("UTF-8")));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (out.length() < MAX_CHARS) {
+                        out.append(line).append('\n');
+                    }
+                }
+                return out.toString();
             }
+        });
+
+        boolean finished;
+        try {
+            finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            process.destroyForcibly();
+            Thread.currentThread().interrupt();
+            return ToolResult.failure("Command interrupted: " + command);
         }
-        boolean finished = process.waitFor(60, TimeUnit.SECONDS);
+
         if (!finished) {
             process.destroyForcibly();
-            return ToolResult.failure("Command timed out after 60s.\n" + out.toString());
+            executor.shutdownNow();
+            long elapsed = System.currentTimeMillis() - started;
+            return ToolResult.failure("command=" + command + "\n"
+                    + "exit_code=timeout\n"
+                    + "elapsed_ms=" + elapsed + "\n"
+                    + "Timed out after " + timeoutSeconds + "s.");
         }
+
+        String out = outputFuture.get(5, TimeUnit.SECONDS);
+        executor.shutdownNow();
+
         int exit = process.exitValue();
-        String text = "exit_code=" + exit + "\n" + out.toString();
+        long elapsed = System.currentTimeMillis() - started;
+        String text = "command=" + command + "\n"
+                + "exit_code=" + exit + "\n"
+                + "elapsed_ms=" + elapsed + "\n"
+                + "output:\n"
+                + out;
         if (out.length() >= MAX_CHARS) {
             text += "...truncated at " + MAX_CHARS + " chars\n";
         }
+        log.info("VALIDATION", "Command finished: exit_code=" + exit + ", elapsed_ms=" + elapsed);
         return exit == 0 ? ToolResult.success(text) : ToolResult.failure(text);
+    }
+
+    private int parseTimeout(String text) {
+        try {
+            int value = Integer.parseInt(text);
+            return Math.max(1, Math.min(value, 300));
+        } catch (Exception ignored) {
+            return 60;
+        }
     }
 }

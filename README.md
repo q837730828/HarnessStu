@@ -49,9 +49,11 @@ java -jar target/agent-harness-0.1.0.jar "看看这个项目里有哪些文件"
 - `read_file`: 读取工作区内文件
 - `grep`: 在工作区内搜索文本
 - `edit_file`: 用精确 `old_text -> new_text` 替换修改文件，写入前打印 diff，并在 `.harness/backups/` 保存备份
-- `bash`: 执行允许列表中的安全命令
+- `bash`: 执行允许列表中的验证命令，例如 `git diff`、`mvn test`、`mvn package`
 
 `edit_file` 是 MVP2 的核心工具。它刻意不支持模型随意覆盖整文件，而是要求模型先 `read_file`，再提交一个当前文件中能唯一匹配的 `old_text` 块。这样更容易观察和理解 coding agent 的安全编辑流程。
+
+`bash` 是 MVP3 的核心工具。它用于验证编辑结果，会把 `command`、`exit_code`、`elapsed_ms` 和命令输出回灌给模型。权限层只允许单条 allowlist 命令，并阻止 `;`、管道、重定向、`&&`、`||` 等 shell 组合写法。
 
 ## 日志怎么看
 
@@ -67,6 +69,7 @@ java -jar target/agent-harness-0.1.0.jar "看看这个项目里有哪些文件"
 - `[TOOL]`: 工具调用和结果
 - `[PERMISSION]`: 权限判断
 - `[DIFF]`: `edit_file` 写入前的 diff
+- `[VALIDATION]`: `bash` 验证命令的执行状态
 - `[OBSERVATION]`: 回灌给模型的工具结果
 
 所有 stage 会以中英双语显示，例如 `[MODEL INPUT/模型输入]`、`[PERMISSION/权限]`。
@@ -79,8 +82,4 @@ java -jar target/agent-harness-0.1.0.jar "看看这个项目里有哪些文件"
 .harness/sessions/
 ```
 
-这个 MVP 的重点不是功能完整，而是把 Claude Code 类工具的"心跳"露出来。
-
-你好，欢迎阅读这份 README！祝编码愉快 🎉“心跳”露出来。
-
-你好，AI Coding Agent！祝你编码愉快！🚀
+这个 MVP 的重点不是功能完整，而是把 Claude Code 类工具的“心跳”露出来。
