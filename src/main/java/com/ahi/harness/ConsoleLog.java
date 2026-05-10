@@ -75,6 +75,9 @@ public class ConsoleLog {
         if ("OBSERVATION".equals(stage)) {
             return "OBSERVATION/观察结果";
         }
+        if ("DIFF".equals(stage)) {
+            return "DIFF/变更预览";
+        }
         return stage + "/阶段";
     }
 }

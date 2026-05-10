@@ -6,6 +6,7 @@ import com.ahi.harness.model.DeepSeekClient;
 import com.ahi.harness.permission.PermissionPolicy;
 import com.ahi.harness.session.JsonlSessionStore;
 import com.ahi.harness.tools.BashTool;
+import com.ahi.harness.tools.EditFileTool;
 import com.ahi.harness.tools.GrepTool;
 import com.ahi.harness.tools.ListFilesTool;
 import com.ahi.harness.tools.ReadFileTool;
@@ -34,12 +35,14 @@ public class Main {
         registry.register(new ListFilesTool(workspace));
         registry.register(new ReadFileTool(workspace));
         registry.register(new GrepTool(workspace));
+        registry.register(new EditFileTool(workspace, log));
         registry.register(new BashTool(workspace));
 
         Conversation conversation = new Conversation();
         conversation.addSystem("You are a coding agent running inside a small Java harness. "
                 + "Use tools when you need facts from the local workspace. "
                 + "Prefer list_files, read_file, and grep before answering codebase questions. "
+                + "Before editing a file, read it first. Use edit_file with exact old_text and new_text. "
                 + "When you have enough information, respond with a concise final answer.");
 
         DeepSeekClient model = new DeepSeekClient(

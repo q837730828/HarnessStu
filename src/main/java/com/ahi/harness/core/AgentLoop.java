@@ -12,7 +12,7 @@ import com.ahi.harness.tools.ToolResult;
 import java.util.List;
 
 public class AgentLoop {
-    private static final int MAX_STEPS = 12;
+    private static final int MAX_STEPS = 48;
 
     private final ModelClient model;
     private final ToolRegistry tools;

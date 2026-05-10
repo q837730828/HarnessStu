@@ -9,10 +9,35 @@ public class PermissionPolicy {
         if ("list_files".equals(call.name()) || "read_file".equals(call.name()) || "grep".equals(call.name())) {
             return PermissionDecision.allow("read-only workspace tool");
         }
+        if ("edit_file".equals(call.name())) {
+            return checkEditFile(call);
+        }
         if ("bash".equals(call.name())) {
             return checkBash(call.arguments().path("command").asText(""));
         }
         return PermissionDecision.deny("tool is not registered in the permission policy");
+    }
+
+    private PermissionDecision checkEditFile(ToolCall call) {
+        String path = call.arguments().path("path").asText("");
+        String normalized = path.replace('\\', '/').toLowerCase(Locale.ROOT);
+        if (normalized.trim().isEmpty()) {
+            return PermissionDecision.deny("edit_file path is required");
+        }
+        if (!call.arguments().has("old_text") || !call.arguments().has("new_text")) {
+            return PermissionDecision.deny("edit_file requires old_text and new_text");
+        }
+        if (normalized.startsWith(".git/")
+                || normalized.startsWith(".harness/")
+                || normalized.startsWith(".idea/")
+                || normalized.startsWith("target/")
+                || normalized.contains("/.git/")
+                || normalized.contains("/.harness/")
+                || normalized.contains("/.idea/")
+                || normalized.contains("/target/")) {
+            return PermissionDecision.deny("editing generated, private, or VCS metadata paths is blocked");
+        }
+        return PermissionDecision.allow("workspace edit with exact replacement, diff, and backup");
     }
 
     private PermissionDecision checkBash(String command) {
