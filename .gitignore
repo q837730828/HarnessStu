@@ -1,0 +1,4 @@
+target/
+.harness/
+.idea/
+*.log
