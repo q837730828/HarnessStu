@@ -19,6 +19,8 @@ public class HarnessSettings {
     private boolean logJsonBodies = true;
     private int bashDefaultTimeoutSeconds = 60;
     private int bashMaxTimeoutSeconds = 300;
+    private List<ExternalToolServer> externalTools = new ArrayList<ExternalToolServer>();
+    private List<String> externalToolAllowlist = new ArrayList<String>();
     private List<String> bashAllowedPrefixes = new ArrayList<String>(Arrays.asList(
             "git status", "git diff", "git log", "git show",
             "mvn test", "mvn package", "mvn clean test", "mvn clean package",
@@ -55,6 +57,8 @@ public class HarnessSettings {
         settings.bashMaxTimeoutSeconds = integer(root, "bash_max_timeout_seconds", settings.bashMaxTimeoutSeconds);
         settings.bashAllowedPrefixes = strings(root, "bash_allowed_prefixes", settings.bashAllowedPrefixes);
         settings.bashBlockedTokens = strings(root, "bash_blocked_tokens", settings.bashBlockedTokens);
+        settings.externalTools = externalTools(root.path("external_tools"));
+        settings.externalToolAllowlist = strings(root, "external_tool_allowlist", settings.externalToolAllowlist);
         return settings;
     }
 
@@ -98,6 +102,14 @@ public class HarnessSettings {
         return bashBlockedTokens;
     }
 
+    public List<ExternalToolServer> externalTools() {
+        return externalTools;
+    }
+
+    public List<String> externalToolAllowlist() {
+        return externalToolAllowlist;
+    }
+
     private static String env(String key, String fallback) {
         String value = System.getenv(key);
         return value == null || value.trim().isEmpty() ? fallback : value.trim();
@@ -130,5 +142,69 @@ public class HarnessSettings {
             }
         }
         return values.isEmpty() ? fallback : values;
+    }
+
+    private static List<ExternalToolServer> externalTools(JsonNode node) {
+        List<ExternalToolServer> servers = new ArrayList<ExternalToolServer>();
+        if (!node.isArray()) {
+            return servers;
+        }
+        for (JsonNode item : node) {
+            String name = text(item, "name", "");
+            String type = text(item, "type", "stdio");
+            String command = text(item, "command", "");
+            String url = text(item, "url", "");
+            String protocol = text(item, "protocol", "simple");
+            List<String> args = strings(item, "args", new ArrayList<String>());
+            if (!name.trim().isEmpty() && "stdio".equals(type) && !command.trim().isEmpty()) {
+                servers.add(new ExternalToolServer(name, type, protocol, command, args, url));
+            }
+            if (!name.trim().isEmpty() && "streamable_http".equals(type) && !url.trim().isEmpty()) {
+                servers.add(new ExternalToolServer(name, type, "mcp", command, args, url));
+            }
+        }
+        return servers;
+    }
+
+    public static class ExternalToolServer {
+        private final String name;
+        private final String type;
+        private final String protocol;
+        private final String command;
+        private final List<String> args;
+        private final String url;
+
+        public ExternalToolServer(String name, String type, String protocol, String command, List<String> args, String url) {
+            this.name = name;
+            this.type = type;
+            this.protocol = protocol;
+            this.command = command;
+            this.args = args;
+            this.url = url;
+        }
+
+        public String name() {
+            return name;
+        }
+
+        public String type() {
+            return type;
+        }
+
+        public String protocol() {
+            return protocol;
+        }
+
+        public String command() {
+            return command;
+        }
+
+        public List<String> args() {
+            return args;
+        }
+
+        public String url() {
+            return url;
+        }
     }
 }

@@ -70,6 +70,86 @@ MVP4 增加了工程化运行时能力：
 - session resume: 新会话日志会保存结构化 message，可用 `/resume` 恢复
 - compaction: 消息超过阈值后，把旧上下文压缩成本地摘要，并保留最近消息
 
+## MVP5 external tools
+
+MVP5 增加了外部工具生态的最小实现：
+
+- `ToolProvider`: 工具来源抽象，内置工具和外部工具都通过 provider 注册
+- `ExternalStdioToolProvider`: 从外部 stdio 服务发现工具
+- `ExternalStdioTool`: 把外部工具包装成 harness 内部 `Tool`
+- `protocol: "simple"`: 兼容本项目早期的一行 JSON 协议
+- `protocol: "mcp"`: 支持 MCP-style JSON-RPC 的 `initialize`、`notifications/initialized`、`tools/list`、`tools/call`
+- `type: "streamable_http"`: 支持 MCP Streamable HTTP 的 POST JSON-RPC 请求，兼容 `application/json` 和基础 `text/event-stream`
+- 外部工具命名规则：`external__<provider>__<tool>`
+- 外部工具权限：必须出现在 `external_tool_allowlist`
+- 示例服务：`external-tools/demo_tool_server.py`
+
+外部 stdio 服务支持两种协议。
+
+Simple 协议使用一行 JSON 请求/响应。
+
+发现工具：
+
+```json
+{"type":"list_tools"}
+```
+
+调用工具：
+
+```json
+{"type":"call_tool","name":"time_now","arguments":{}}
+```
+
+示例 `.harness/settings.json`：
+
+```json
+{
+  "external_tools": [
+    {
+      "name": "demo",
+      "type": "stdio",
+      "protocol": "mcp",
+      "command": "python",
+      "args": ["external-tools/demo_tool_server.py"]
+    },
+    {
+      "name": "demo_http",
+      "type": "streamable_http",
+      "url": "http://127.0.0.1:8765/mcp"
+    }
+  ],
+  "external_tool_allowlist": [
+    "external__demo__time_now",
+    "external__demo__echo",
+    "external__demo_http__time_now",
+    "external__demo_http__echo"
+  ]
+}
+```
+
+MCP-style 协议使用 JSON-RPC 2.0。harness 会依次发送：
+
+```text
+initialize
+notifications/initialized
+tools/list 或 tools/call
+```
+
+Streamable HTTP demo server:
+
+```powershell
+python external-tools/demo_streamable_http_server.py 8765
+```
+
+交互模式还可以直接查看 MCP resources 和 prompts：
+
+```text
+/mcp/resources [server]
+/mcp/read <server> <uri>
+/mcp/prompts [server]
+/mcp/get-prompt <server> <name> [json-args]
+```
+
 ## 日志怎么看
 
 程序会打印这些阶段：
@@ -84,6 +164,7 @@ MVP4 增加了工程化运行时能力：
 - `[PERMISSION]`: 权限判断
 - `[DIFF]`: `edit_file` 写入前的 diff
 - `[VALIDATION]`: `bash` 验证命令的执行状态
+- `[EXTERNAL]`: 外部工具发现和调用状态
 - `[OBSERVATION]`: 回灌给模型的工具结果
 
 所有 stage 会以中英双语显示，例如 `[MODEL REQUEST JSON/模型请求体]`、`[PERMISSION/权限]`。
@@ -95,4 +176,3 @@ MVP4 增加了工程化运行时能力：
 ```text
 .harness/sessions/
 ```
-

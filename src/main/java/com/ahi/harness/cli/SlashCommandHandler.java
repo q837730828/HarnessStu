@@ -1,11 +1,17 @@
 package com.ahi.harness.cli;
 
 import com.ahi.harness.ConsoleLog;
+import com.ahi.harness.config.HarnessSettings;
 import com.ahi.harness.core.Conversation;
 import com.ahi.harness.core.Message;
 import com.ahi.harness.session.JsonlSessionStore;
 import com.ahi.harness.tools.Tool;
 import com.ahi.harness.tools.ToolRegistry;
+import com.ahi.harness.tools.external.McpStdioClient;
+import com.ahi.harness.tools.external.McpStreamableHttpClient;
+import com.ahi.harness.tools.provider.ExternalStdioToolProvider;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -20,17 +26,21 @@ public class SlashCommandHandler {
     private final ToolRegistry tools;
     private final ConsoleLog log;
     private final int compactKeepRecentMessages;
+    private final List<HarnessSettings.ExternalToolServer> externalServers;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public SlashCommandHandler(File workspace,
                                File sessionDirectory,
                                ToolRegistry tools,
                                ConsoleLog log,
-                               int compactKeepRecentMessages) {
+                               int compactKeepRecentMessages,
+                               List<HarnessSettings.ExternalToolServer> externalServers) {
         this.workspace = workspace;
         this.sessionDirectory = sessionDirectory;
         this.tools = tools;
         this.log = log;
         this.compactKeepRecentMessages = compactKeepRecentMessages;
+        this.externalServers = externalServers;
     }
 
     public boolean handle(String line, Conversation conversation) throws Exception {
@@ -39,7 +49,7 @@ public class SlashCommandHandler {
             return false;
         }
         if ("/help".equals(trimmed)) {
-            log.block("HARNESS", "Slash commands", "/help\n/tools\n/status\n/diff\n/sessions\n/resume latest\n/resume <session-file>\n/compact\n/exit");
+            log.block("HARNESS", "Slash commands", "/help\n/tools\n/status\n/diff\n/sessions\n/resume latest\n/resume <session-file>\n/compact\n/reload\n/mcp/resources [server]\n/mcp/read <server> <uri>\n/mcp/prompts [server]\n/mcp/get-prompt <server> <name> [json-args]\n/exit");
             return true;
         }
         if ("/tools".equals(trimmed)) {
@@ -101,7 +111,124 @@ public class SlashCommandHandler {
             log.info("HARNESS", "Compacted conversation: " + before + " -> " + conversation.size() + " messages");
             return true;
         }
+        if ("/reload".equals(trimmed)) {
+            int added = 0;
+            int failed = 0;
+            for (HarnessSettings.ExternalToolServer server : externalServers) {
+                try {
+                    List<Tool> newTools = new ExternalStdioToolProvider(workspace, server, log).loadTools();
+                    for (Tool tool : newTools) {
+                        tools.register(tool);
+                        log.info("HARNESS", "re-registered tool: " + tool.name());
+                        added++;
+                    }
+                } catch (Exception e) {
+                    log.error("EXTERNAL", "Failed to reload " + server.name() + ": " + e.getMessage());
+                    failed++;
+                }
+            }
+            log.info("HARNESS", "Reload complete: " + added + " tools loaded, " + failed + " servers failed");
+            return true;
+        }
+        if (trimmed.startsWith("/mcp/resources")) {
+            HarnessSettings.ExternalToolServer server = resolveMcpServer(optionalArg(trimmed, "/mcp/resources"));
+            if (server != null) {
+                log.block("EXTERNAL", "MCP resources", mapper.writerWithDefaultPrettyPrinter().writeValueAsString(listResources(server)));
+            }
+            return true;
+        }
+        if (trimmed.startsWith("/mcp/read ")) {
+            String[] parts = trimmed.split("\\s+", 3);
+            if (parts.length < 3) {
+                log.error("HARNESS", "Usage: /mcp/read <server> <uri>");
+                return true;
+            }
+            HarnessSettings.ExternalToolServer server = resolveMcpServer(parts[1]);
+            if (server != null) {
+                log.block("EXTERNAL", "MCP resource", mapper.writerWithDefaultPrettyPrinter().writeValueAsString(readResource(server, parts[2])));
+            }
+            return true;
+        }
+        if (trimmed.startsWith("/mcp/prompts")) {
+            HarnessSettings.ExternalToolServer server = resolveMcpServer(optionalArg(trimmed, "/mcp/prompts"));
+            if (server != null) {
+                log.block("EXTERNAL", "MCP prompts", mapper.writerWithDefaultPrettyPrinter().writeValueAsString(listPrompts(server)));
+            }
+            return true;
+        }
+        if (trimmed.startsWith("/mcp/get-prompt ")) {
+            String[] parts = trimmed.split("\\s+", 4);
+            if (parts.length < 3) {
+                log.error("HARNESS", "Usage: /mcp/get-prompt <server> <name> [json-args]");
+                return true;
+            }
+            HarnessSettings.ExternalToolServer server = resolveMcpServer(parts[1]);
+            JsonNode args;
+            try {
+                args = parts.length >= 4 ? mapper.readTree(parts[3]) : mapper.createObjectNode();
+            } catch (Exception e) {
+                log.error("HARNESS", "Invalid JSON args. Example: /mcp/get-prompt demo demo_review {\"topic\":\"MCP harness\"}");
+                return true;
+            }
+            if (server != null) {
+                log.block("EXTERNAL", "MCP prompt", mapper.writerWithDefaultPrettyPrinter().writeValueAsString(getPrompt(server, parts[2], args)));
+            }
+            return true;
+        }
         return false;
+    }
+
+    private String optionalArg(String command, String prefix) {
+        String value = command.substring(prefix.length()).trim();
+        return value.isEmpty() ? "" : value;
+    }
+
+    private HarnessSettings.ExternalToolServer resolveMcpServer(String name) {
+        HarnessSettings.ExternalToolServer firstMcp = null;
+        for (HarnessSettings.ExternalToolServer server : externalServers) {
+            if (!"mcp".equalsIgnoreCase(server.protocol()) && !"streamable_http".equalsIgnoreCase(server.type())) {
+                continue;
+            }
+            if (firstMcp == null) {
+                firstMcp = server;
+            }
+            if (server.name().equals(name)) {
+                return server;
+            }
+        }
+        if (name == null || name.trim().isEmpty()) {
+            return firstMcp;
+        }
+        log.error("HARNESS", "MCP server not found: " + name);
+        return null;
+    }
+
+    private JsonNode listResources(HarnessSettings.ExternalToolServer server) throws Exception {
+        if ("streamable_http".equalsIgnoreCase(server.type())) {
+            return new McpStreamableHttpClient(server, log).listResources();
+        }
+        return new McpStdioClient(workspace, server, log).listResources();
+    }
+
+    private JsonNode readResource(HarnessSettings.ExternalToolServer server, String uri) throws Exception {
+        if ("streamable_http".equalsIgnoreCase(server.type())) {
+            return new McpStreamableHttpClient(server, log).readResource(uri);
+        }
+        return new McpStdioClient(workspace, server, log).readResource(uri);
+    }
+
+    private JsonNode listPrompts(HarnessSettings.ExternalToolServer server) throws Exception {
+        if ("streamable_http".equalsIgnoreCase(server.type())) {
+            return new McpStreamableHttpClient(server, log).listPrompts();
+        }
+        return new McpStdioClient(workspace, server, log).listPrompts();
+    }
+
+    private JsonNode getPrompt(HarnessSettings.ExternalToolServer server, String name, JsonNode args) throws Exception {
+        if ("streamable_http".equalsIgnoreCase(server.type())) {
+            return new McpStreamableHttpClient(server, log).getPrompt(name, args);
+        }
+        return new McpStdioClient(workspace, server, log).getPrompt(name, args);
     }
 
     private File resolveSession(String command) {

@@ -40,44 +40,59 @@ public class ConsoleLog {
 
     private String stageLabel(String stage) {
         if ("HARNESS".equals(stage)) {
-            return "HARNESS/运行时";
+            return "HARNESS/\u8fd0\u884c\u65f6";
         }
         if ("USER".equals(stage)) {
-            return "USER/用户";
+            return "USER/\u7528\u6237";
         }
         if ("ASSISTANT".equals(stage)) {
-            return "ASSISTANT/助手";
+            return "ASSISTANT/\u52a9\u624b";
         }
         if ("MODEL".equals(stage)) {
-            return "MODEL/模型";
+            return "MODEL/\u6a21\u578b";
         }
         if ("MODEL HTTP".equals(stage)) {
-            return "MODEL HTTP/模型HTTP";
+            return "MODEL HTTP/\u6a21\u578bHTTP";
         }
         if ("MODEL REQUEST JSON".equals(stage)) {
-            return "MODEL REQUEST JSON/模型请求体";
+            return "MODEL REQUEST JSON/\u6a21\u578b\u8bf7\u6c42\u4f53";
         }
         if ("MODEL RESPONSE JSON".equals(stage)) {
-            return "MODEL RESPONSE JSON/模型响应体";
+            return "MODEL RESPONSE JSON/\u6a21\u578b\u54cd\u5e94\u4f53";
         }
         if ("TOOL".equals(stage)) {
-            return "TOOL/工具";
+            return "TOOL/\u5de5\u5177";
         }
         if ("PERMISSION".equals(stage)) {
-            return "PERMISSION/权限";
+            return "PERMISSION/\u6743\u9650";
         }
         if ("OBSERVATION".equals(stage)) {
-            return "OBSERVATION/观察结果";
+            return "OBSERVATION/\u89c2\u5bdf\u7ed3\u679c";
         }
         if ("DIFF".equals(stage)) {
-            return "DIFF/变更预览";
+            return "DIFF/\u53d8\u66f4\u9884\u89c8";
         }
         if ("VALIDATION".equals(stage)) {
-            return "VALIDATION/验证";
+            return "VALIDATION/\u9a8c\u8bc1";
         }
         if ("HOOK".equals(stage)) {
-            return "HOOK/钩子";
+            return "HOOK/\u94a9\u5b50";
         }
-        return stage + "/阶段";
+        if ("EXTERNAL".equals(stage)) {
+            return "EXTERNAL/\u5916\u90e8\u5de5\u5177";
+        }
+        if ("MCP HTTP REQUEST".equals(stage)) {
+            return "MCP HTTP REQUEST/HTTP\u8bf7\u6c42\u4f53";
+        }
+        if ("MCP HTTP RESPONSE".equals(stage)) {
+            return "MCP HTTP RESPONSE/HTTP\u54cd\u5e94\u4f53";
+        }
+        if ("MCP STDIO REQUEST".equals(stage)) {
+            return "MCP STDIO REQUEST/STDIO\u8bf7\u6c42\u4f53";
+        }
+        if ("MCP STDIO RESPONSE".equals(stage)) {
+            return "MCP STDIO RESPONSE/STDIO\u54cd\u5e94\u4f53";
+        }
+        return stage + "/\u9636\u6bb5";
     }
 }

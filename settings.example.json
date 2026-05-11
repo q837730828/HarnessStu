@@ -18,5 +18,27 @@
     "del ",
     "git reset",
     "remove-item"
+  ],
+  "external_tools": [
+    {
+      "name": "demo",
+      "type": "stdio",
+      "protocol": "mcp",
+      "command": "python",
+      "args": [
+        "external-tools/demo_tool_server.py"
+      ]
+    },
+    {
+      "name": "demo_http",
+      "type": "streamable_http",
+      "url": "http://127.0.0.1:8765/mcp"
+    }
+  ],
+  "external_tool_allowlist": [
+    "external__demo__time_now",
+    "external__demo__echo",
+    "external__demo_http__time_now",
+    "external__demo_http__echo"
   ]
 }

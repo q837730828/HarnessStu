@@ -98,7 +98,8 @@ Current completed MVPs:
 - MVP2: safe edit tool with diff and backup
 - MVP3: validation commands through restricted `bash`
 - MVP4: runtime engineering features, including settings, hooks, memory, slash commands, resume, and compaction
+- MVP5: external tool ecosystem with provider abstraction, simple stdio adapters, MCP-style JSON-RPC stdio adapters, and Streamable HTTP transport
 
-Next likely MVP:
+Possible next direction:
 
-- MVP5: external tool ecosystem, probably MCP-style tool adapters
+- A fuller MCP implementation with long-lived stdio sessions, server-initiated notifications, and richer Streamable HTTP resumability

@@ -9,10 +9,12 @@ import java.util.Locale;
 public class PermissionPolicy {
     private final List<String> bashAllowedPrefixes;
     private final List<String> bashBlockedTokens;
+    private final List<String> externalToolAllowlist;
 
-    public PermissionPolicy(List<String> bashAllowedPrefixes, List<String> bashBlockedTokens) {
+    public PermissionPolicy(List<String> bashAllowedPrefixes, List<String> bashBlockedTokens, List<String> externalToolAllowlist) {
         this.bashAllowedPrefixes = bashAllowedPrefixes;
         this.bashBlockedTokens = bashBlockedTokens;
+        this.externalToolAllowlist = externalToolAllowlist;
     }
 
     public PermissionPolicy() {
@@ -31,7 +33,7 @@ public class PermissionPolicy {
                 "set-content", "out-file", "new-item", "copy-item", "move-item",
                 "invoke-webrequest", "iwr ", "curl ", "wget ",
                 "start-process", "invoke-expression", "iex "
-        ));
+        ), Arrays.<String>asList());
     }
 
     public PermissionDecision check(ToolCall call) {
@@ -44,7 +46,17 @@ public class PermissionPolicy {
         if ("bash".equals(call.name())) {
             return checkBash(call.arguments().path("command").asText(""));
         }
+        if (call.name().startsWith("external__")) {
+            return checkExternal(call.name());
+        }
         return PermissionDecision.deny("tool is not registered in the permission policy");
+    }
+
+    private PermissionDecision checkExternal(String name) {
+        if (externalToolAllowlist.contains(name)) {
+            return PermissionDecision.allow("external tool allowlisted: " + name);
+        }
+        return PermissionDecision.deny("external tool is not in external_tool_allowlist: " + name);
     }
 
     private PermissionDecision checkEditFile(ToolCall call) {

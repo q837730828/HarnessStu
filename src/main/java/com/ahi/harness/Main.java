@@ -9,12 +9,11 @@ import com.ahi.harness.memory.ProjectMemoryLoader;
 import com.ahi.harness.model.DeepSeekClient;
 import com.ahi.harness.permission.PermissionPolicy;
 import com.ahi.harness.session.JsonlSessionStore;
-import com.ahi.harness.tools.BashTool;
-import com.ahi.harness.tools.EditFileTool;
-import com.ahi.harness.tools.GrepTool;
-import com.ahi.harness.tools.ListFilesTool;
-import com.ahi.harness.tools.ReadFileTool;
+import com.ahi.harness.tools.Tool;
 import com.ahi.harness.tools.ToolRegistry;
+import com.ahi.harness.tools.provider.BuiltInToolProvider;
+import com.ahi.harness.tools.provider.ExternalStdioToolProvider;
+import com.ahi.harness.tools.provider.ToolProvider;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -40,11 +39,14 @@ public class Main {
         }
 
         ToolRegistry registry = new ToolRegistry();
-        registry.register(new ListFilesTool(workspace));
-        registry.register(new ReadFileTool(workspace));
-        registry.register(new GrepTool(workspace));
-        registry.register(new EditFileTool(workspace, log));
-        registry.register(new BashTool(workspace, log, settings.bashDefaultTimeoutSeconds(), settings.bashMaxTimeoutSeconds()));
+        registerTools(registry, new BuiltInToolProvider(workspace, log, settings), log);
+        for (HarnessSettings.ExternalToolServer server : settings.externalTools()) {
+            try {
+                registerTools(registry, new ExternalStdioToolProvider(workspace, server, log), log);
+            } catch (Exception e) {
+                log.error("EXTERNAL", "Failed to load external tool server " + server.name() + ": " + e.getMessage());
+            }
+        }
 
         Conversation conversation = new Conversation();
         conversation.addSystem(systemPrompt(workspace));
@@ -62,7 +64,7 @@ public class Main {
         AgentLoop loop = new AgentLoop(
                 model,
                 registry,
-                new PermissionPolicy(settings.bashAllowedPrefixes(), settings.bashBlockedTokens()),
+                new PermissionPolicy(settings.bashAllowedPrefixes(), settings.bashBlockedTokens(), settings.externalToolAllowlist()),
                 sessionStore,
                 log,
                 hooks,
@@ -75,7 +77,8 @@ public class Main {
                 sessionDirectory,
                 registry,
                 log,
-                settings.compactKeepRecentMessages()
+                settings.compactKeepRecentMessages(),
+                settings.externalTools()
         );
 
         String oneShot = joinArgs(args);
@@ -113,6 +116,7 @@ public class Main {
         prompt.append("Prefer list_files, read_file, and grep before answering codebase questions. ");
         prompt.append("Before editing a file, read it first. Use edit_file with exact old_text and new_text. ");
         prompt.append("After code edits, verify with bash using safe commands such as git diff or mvn test/package, then use the results to continue or finish. ");
+        prompt.append("External tools are exposed with names like external__provider__tool and are subject to the same permission checks. ");
         prompt.append("When you have enough information, respond with a concise final answer.");
 
         String memory = new ProjectMemoryLoader().load(workspace);
@@ -120,6 +124,13 @@ public class Main {
             prompt.append("\n\n").append(memory);
         }
         return prompt.toString();
+    }
+
+    private static void registerTools(ToolRegistry registry, ToolProvider provider, ConsoleLog log) throws Exception {
+        for (Tool tool : provider.loadTools()) {
+            registry.register(tool);
+            log.info("HARNESS", "registered tool: " + tool.name());
+        }
     }
 
     private static String joinArgs(String[] args) {
