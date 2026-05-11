@@ -7,6 +7,7 @@ import com.ahi.harness.tools.EditFileTool;
 import com.ahi.harness.tools.GrepTool;
 import com.ahi.harness.tools.ListFilesTool;
 import com.ahi.harness.tools.ReadFileTool;
+import com.ahi.harness.tools.SubagentWriteTool;
 import com.ahi.harness.tools.Tool;
 import com.ahi.harness.tools.TodoReadTool;
 import com.ahi.harness.tools.TodoWriteTool;
@@ -34,6 +35,7 @@ public class BuiltInToolProvider implements ToolProvider {
         tools.add(new GrepTool(workspace));
         tools.add(new TodoReadTool(workspace));
         tools.add(new TodoWriteTool(workspace, log));
+        tools.add(new SubagentWriteTool(workspace, log));
         tools.add(new EditFileTool(workspace, log));
         tools.add(new BashTool(workspace, log, settings.bashDefaultTimeoutSeconds(), settings.bashMaxTimeoutSeconds()));
         return tools;

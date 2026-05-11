@@ -1,4 +1,6 @@
 target/
-.harness/
+.harness/*
+!.harness/agents/
+!.harness/agents/*.md
 .idea/
 *.log

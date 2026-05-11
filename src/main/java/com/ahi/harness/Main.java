@@ -9,6 +9,8 @@ import com.ahi.harness.memory.ProjectMemoryLoader;
 import com.ahi.harness.model.DeepSeekClient;
 import com.ahi.harness.permission.PermissionPolicy;
 import com.ahi.harness.session.JsonlSessionStore;
+import com.ahi.harness.subagent.SubagentRegistry;
+import com.ahi.harness.tools.SubagentRunTool;
 import com.ahi.harness.tools.Tool;
 import com.ahi.harness.tools.ToolRegistry;
 import com.ahi.harness.tools.external.McpServerManager;
@@ -40,7 +42,16 @@ public class Main {
         }
 
         ToolRegistry registry = new ToolRegistry();
+        DeepSeekClient model = new DeepSeekClient(
+                settings.baseUrl(),
+                apiKey,
+                settings.model(),
+                log,
+                settings.logJsonBodies()
+        );
+
         registerTools(registry, new BuiltInToolProvider(workspace, log, settings), log);
+        registerTool(registry, new SubagentRunTool(workspace, model, registry, new SubagentRegistry(workspace, log), log), log);
         McpServerManager mcpManager = new McpServerManager(workspace, settings.externalTools(), log);
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             @Override
@@ -58,14 +69,6 @@ public class Main {
 
         Conversation conversation = new Conversation();
         conversation.addSystem(systemPrompt(workspace));
-
-        DeepSeekClient model = new DeepSeekClient(
-                settings.baseUrl(),
-                apiKey,
-                settings.model(),
-                log,
-                settings.logJsonBodies()
-        );
 
         File sessionDirectory = new File(workspace, ".harness/sessions");
         JsonlSessionStore sessionStore = new JsonlSessionStore(sessionDirectory, log);
@@ -126,6 +129,8 @@ public class Main {
         prompt.append("Use tools when you need facts from the local workspace. ");
         prompt.append("Prefer list_files, read_file, and grep before answering codebase questions. ");
         prompt.append("For multi-step tasks, use todo_write to maintain a visible plan, keep exactly one active step in_progress, and update it as work completes. ");
+        prompt.append("Use subagent_run to delegate focused read-only exploration or review work to explorer, reviewer, or project subagents loaded from .harness/agents/*.md when it helps. ");
+        prompt.append("Use subagent_write, not edit_file, when the user asks to create or update a project subagent definition. ");
         prompt.append("Before editing a file, read it first. Use edit_file with exact old_text and new_text. ");
         prompt.append("After code edits, verify with bash using safe commands such as git diff or mvn test/package, then use the results to continue or finish. ");
         prompt.append("External tools are exposed with names like external__provider__tool and are subject to the same permission checks. ");
@@ -140,9 +145,13 @@ public class Main {
 
     private static void registerTools(ToolRegistry registry, ToolProvider provider, ConsoleLog log) throws Exception {
         for (Tool tool : provider.loadTools()) {
-            registry.register(tool);
-            log.info("HARNESS", "registered tool: " + tool.name());
+            registerTool(registry, tool, log);
         }
+    }
+
+    private static void registerTool(ToolRegistry registry, Tool tool, ConsoleLog log) {
+        registry.register(tool);
+        log.info("HARNESS", "registered tool: " + tool.name());
     }
 
     private static String joinArgs(String[] args) {

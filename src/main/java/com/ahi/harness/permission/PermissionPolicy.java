@@ -43,6 +43,12 @@ public class PermissionPolicy {
         if ("todo_read".equals(call.name()) || "todo_write".equals(call.name())) {
             return PermissionDecision.allow("agent planning tool with structured validation");
         }
+        if ("subagent_run".equals(call.name())) {
+            return PermissionDecision.allow("read-only subagent delegation tool");
+        }
+        if ("subagent_write".equals(call.name())) {
+            return PermissionDecision.allow("structured project subagent definition writer");
+        }
         if ("edit_file".equals(call.name())) {
             return checkEditFile(call);
         }
