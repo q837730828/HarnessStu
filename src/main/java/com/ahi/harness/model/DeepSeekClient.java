@@ -29,13 +29,15 @@ public class DeepSeekClient implements ModelClient {
     private final String apiKey;
     private final String model;
     private final ConsoleLog log;
+    private final boolean logJsonBodies;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public DeepSeekClient(String baseUrl, String apiKey, String model, ConsoleLog log) {
+    public DeepSeekClient(String baseUrl, String apiKey, String model, ConsoleLog log, boolean logJsonBodies) {
         this.baseUrl = trimTrailingSlash(baseUrl);
         this.apiKey = apiKey;
         this.model = model;
         this.log = log;
+        this.logJsonBodies = logJsonBodies;
     }
 
     @Override
@@ -50,8 +52,9 @@ public class DeepSeekClient implements ModelClient {
         request.put("tool_choice", "auto");
 
         String body = mapper.writeValueAsString(request);
-        logModelInput(messages, toolDefs, body.length());
-        logJsonBody("MODEL REQUEST JSON", "Sanitized HTTP request body / 脱敏后的 HTTP 请求体", request);
+        if (logJsonBodies) {
+            logJsonBody("MODEL REQUEST JSON", "Sanitized HTTP request body / sanitized HTTP request body", request);
+        }
         log.info("MODEL HTTP", "POST " + baseUrl + "/chat/completions");
 
         HttpURLConnection connection = (HttpURLConnection) new URL(baseUrl + "/chat/completions").openConnection();
@@ -70,7 +73,9 @@ public class DeepSeekClient implements ModelClient {
         int status = connection.getResponseCode();
         String responseText = readAll(status >= 400 ? connection.getErrorStream() : connection.getInputStream());
         log.info("MODEL HTTP", "status=" + status + ", response_chars=" + responseText.length());
-        logJsonText("MODEL RESPONSE JSON", "Sanitized HTTP response body / 脱敏后的 HTTP 响应体", responseText);
+        if (logJsonBodies) {
+            logJsonText("MODEL RESPONSE JSON", "Sanitized HTTP response body / sanitized HTTP response body", responseText);
+        }
         if (status >= 400) {
             throw new IllegalStateException("Model API error " + status + ": " + responseText);
         }
@@ -156,79 +161,7 @@ public class DeepSeekClient implements ModelClient {
         log.info("MODEL", "assistant_content_chars=" + (content == null ? 0 : content.length())
                 + ", reasoning_content_chars=" + (reasoningContent == null ? 0 : reasoningContent.length())
                 + ", tool_calls=" + calls.size());
-        logModelOutput(root, content, reasoningContent, calls);
         return new ModelResponse(content, reasoningContent, calls);
-    }
-
-    private void logModelInput(ArrayNode messages, ArrayNode toolDefs, int requestChars) {
-        StringBuilder body = new StringBuilder();
-        body.append("model: ").append(model).append('\n');
-        body.append("temperature: 0.2").append('\n');
-        body.append("tool_choice: auto").append('\n');
-        body.append("request_chars: ").append(requestChars).append('\n');
-        body.append('\n');
-        body.append("messages sent to model:\n");
-        for (int i = 0; i < messages.size(); i++) {
-            JsonNode message = messages.get(i);
-            body.append("  #").append(i + 1).append(" role=").append(message.path("role").asText()).append('\n');
-            if (message.has("tool_call_id")) {
-                body.append("     tool_call_id=").append(message.path("tool_call_id").asText()).append('\n');
-            }
-            if (message.has("reasoning_content")) {
-                body.append("     reasoning_content=<hidden, ")
-                        .append(message.path("reasoning_content").asText().length())
-                        .append(" chars, replayed for provider protocol>\n");
-            }
-            if (message.has("tool_calls")) {
-                body.append("     tool_calls:\n");
-                for (JsonNode call : message.path("tool_calls")) {
-                    body.append("       - ").append(call.path("function").path("name").asText())
-                            .append(" ").append(call.path("function").path("arguments").asText()).append('\n');
-                }
-            }
-            if (message.has("content") && !message.path("content").isNull()) {
-                body.append(indent(trimForLog(message.path("content").asText(), 1200), "     content: ")).append('\n');
-            }
-        }
-        body.append('\n');
-        body.append("tools exposed to model:\n");
-        for (JsonNode tool : toolDefs) {
-            JsonNode fn = tool.path("function");
-            body.append("  - ").append(fn.path("name").asText())
-                    .append(": ").append(fn.path("description").asText()).append('\n');
-        }
-        log.block("MODEL INPUT", "Request assembled for model / 已组装模型请求", body.toString());
-    }
-
-    private void logModelOutput(JsonNode root, String content, String reasoningContent, List<ToolCall> calls) {
-        StringBuilder body = new StringBuilder();
-        JsonNode choice = root.path("choices").path(0);
-        body.append("finish_reason: ").append(choice.path("finish_reason").asText("")).append('\n');
-        JsonNode usage = root.path("usage");
-        if (!usage.isMissingNode()) {
-            body.append("usage: prompt_tokens=").append(usage.path("prompt_tokens").asText("?"))
-                    .append(", completion_tokens=").append(usage.path("completion_tokens").asText("?"))
-                    .append(", total_tokens=").append(usage.path("total_tokens").asText("?"))
-                    .append('\n');
-        }
-        body.append("assistant_content_chars: ").append(content == null ? 0 : content.length()).append('\n');
-        body.append("reasoning_content_chars: ").append(reasoningContent == null ? 0 : reasoningContent.length())
-                .append(" (content hidden; only replayed to satisfy provider protocol)").append('\n');
-        if (content != null && !content.trim().isEmpty()) {
-            body.append(indent(trimForLog(content, 1500), "assistant_content: ")).append('\n');
-        }
-        if (calls.isEmpty()) {
-            body.append("tool_calls: none\n");
-        } else {
-            body.append("tool_calls:\n");
-            for (int i = 0; i < calls.size(); i++) {
-                ToolCall call = calls.get(i);
-                body.append("  #").append(i + 1).append(" id=").append(call.id()).append('\n');
-                body.append("     name=").append(call.name()).append('\n');
-                body.append("     arguments=").append(call.argumentsJson()).append('\n');
-            }
-        }
-        log.block("MODEL OUTPUT", "Response parsed from model / 已解析模型响应", body.toString());
     }
 
     private void logJsonBody(String stage, String title, JsonNode body) throws Exception {
@@ -280,28 +213,6 @@ public class DeepSeekClient implements ModelClient {
             return mapper.getNodeFactory().textNode(trimForLog(node.asText(), 1800));
         }
         return node;
-    }
-
-    private static String indent(String text, String firstLinePrefix) {
-        String normalized = text == null ? "" : text.replace("\r\n", "\n");
-        String[] lines = normalized.split("\n", -1);
-        StringBuilder out = new StringBuilder();
-        for (int i = 0; i < lines.length; i++) {
-            if (i == 0) {
-                out.append(firstLinePrefix).append(lines[i]);
-            } else {
-                out.append('\n').append(repeat(' ', firstLinePrefix.length())).append(lines[i]);
-            }
-        }
-        return out.toString();
-    }
-
-    private static String repeat(char ch, int count) {
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < count; i++) {
-            builder.append(ch);
-        }
-        return builder.toString();
     }
 
     private static String trimForLog(String value, int maxChars) {

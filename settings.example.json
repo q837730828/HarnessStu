@@ -1,0 +1,22 @@
+{
+  "model": "deepseek-v4-flash",
+  "base_url": "https://api.deepseek.com",
+  "max_steps": 48,
+  "compact_max_messages": 40,
+  "compact_keep_recent_messages": 16,
+  "log_json_bodies": true,
+  "bash_default_timeout_seconds": 60,
+  "bash_max_timeout_seconds": 300,
+  "bash_allowed_prefixes": [
+    "git status",
+    "git diff",
+    "mvn -q test",
+    "mvn -q package"
+  ],
+  "bash_blocked_tokens": [
+    "rm ",
+    "del ",
+    "git reset",
+    "remove-item"
+  ]
+}

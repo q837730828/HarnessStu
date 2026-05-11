@@ -51,12 +51,6 @@ public class ConsoleLog {
         if ("MODEL".equals(stage)) {
             return "MODEL/模型";
         }
-        if ("MODEL INPUT".equals(stage)) {
-            return "MODEL INPUT/模型输入";
-        }
-        if ("MODEL OUTPUT".equals(stage)) {
-            return "MODEL OUTPUT/模型输出";
-        }
         if ("MODEL HTTP".equals(stage)) {
             return "MODEL HTTP/模型HTTP";
         }
@@ -80,6 +74,9 @@ public class ConsoleLog {
         }
         if ("VALIDATION".equals(stage)) {
             return "VALIDATION/验证";
+        }
+        if ("HOOK".equals(stage)) {
+            return "HOOK/钩子";
         }
         return stage + "/阶段";
     }

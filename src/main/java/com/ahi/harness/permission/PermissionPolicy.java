@@ -2,9 +2,38 @@ package com.ahi.harness.permission;
 
 import com.ahi.harness.core.ToolCall;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 
 public class PermissionPolicy {
+    private final List<String> bashAllowedPrefixes;
+    private final List<String> bashBlockedTokens;
+
+    public PermissionPolicy(List<String> bashAllowedPrefixes, List<String> bashBlockedTokens) {
+        this.bashAllowedPrefixes = bashAllowedPrefixes;
+        this.bashBlockedTokens = bashBlockedTokens;
+    }
+
+    public PermissionPolicy() {
+        this(Arrays.asList(
+                "git status", "git diff", "git log", "git show",
+                "mvn test", "mvn package", "mvn clean test", "mvn clean package",
+                "mvn -q test", "mvn -q package", "mvn -q clean test", "mvn -q clean package",
+                "java -version", "javac -version",
+                "npm test", "npm run", "pytest", "python -m pytest",
+                "gradle test", "gradle build", ".\\gradlew test", ".\\gradlew build",
+                "dir", "ls", "get-childitem", "rg "
+        ), Arrays.asList(
+                "rm ", "rm-", "del ", "erase ", "rmdir ", "remove-item", "ri ",
+                "format", "shutdown", "restart-computer", "stop-computer",
+                "git reset", "git clean", "git checkout", "git switch", "git restore",
+                "set-content", "out-file", "new-item", "copy-item", "move-item",
+                "invoke-webrequest", "iwr ", "curl ", "wget ",
+                "start-process", "invoke-expression", "iex "
+        ));
+    }
+
     public PermissionDecision check(ToolCall call) {
         if ("list_files".equals(call.name()) || "read_file".equals(call.name()) || "grep".equals(call.name())) {
             return PermissionDecision.allow("read-only workspace tool");
@@ -49,30 +78,13 @@ public class PermissionPolicy {
             return PermissionDecision.deny("shell control operators are blocked; run one validation command at a time");
         }
 
-        String[] blocked = {
-                "rm ", "rm-", "del ", "erase ", "rmdir ", "remove-item", "ri ",
-                "format", "shutdown", "restart-computer", "stop-computer",
-                "git reset", "git clean", "git checkout", "git switch", "git restore",
-                "set-content", "out-file", "new-item", "copy-item", "move-item",
-                "invoke-webrequest", "iwr ", "curl ", "wget ",
-                "start-process", "invoke-expression", "iex "
-        };
-        for (String token : blocked) {
+        for (String token : bashBlockedTokens) {
             if (normalized.contains(token)) {
                 return PermissionDecision.deny("blocked shell token: " + token.trim());
             }
         }
 
-        String[] allowedPrefixes = {
-                "git status", "git diff", "git log", "git show",
-                "mvn test", "mvn package", "mvn clean test", "mvn clean package",
-                "mvn -q test", "mvn -q package", "mvn -q clean test", "mvn -q clean package",
-                "java -version", "javac -version",
-                "npm test", "npm run", "pytest", "python -m pytest",
-                "gradle test", "gradle build", ".\\gradlew test", ".\\gradlew build",
-                "dir", "ls", "get-childitem", "rg "
-        };
-        for (String prefix : allowedPrefixes) {
+        for (String prefix : bashAllowedPrefixes) {
             if (normalized.equals(prefix) || normalized.startsWith(prefix + " ")) {
                 return PermissionDecision.allow("allowlisted command prefix: " + prefix);
             }

@@ -21,10 +21,14 @@ public class BashTool implements Tool {
     private static final int MAX_CHARS = 12000;
     private final File workspace;
     private final ConsoleLog log;
+    private final int defaultTimeoutSeconds;
+    private final int maxTimeoutSeconds;
 
-    public BashTool(File workspace, ConsoleLog log) {
+    public BashTool(File workspace, ConsoleLog log, int defaultTimeoutSeconds, int maxTimeoutSeconds) {
         this.workspace = workspace;
         this.log = log;
+        this.defaultTimeoutSeconds = defaultTimeoutSeconds;
+        this.maxTimeoutSeconds = maxTimeoutSeconds;
     }
 
     @Override
@@ -52,7 +56,7 @@ public class BashTool implements Tool {
         if (command.trim().isEmpty()) {
             return ToolResult.failure("command is required");
         }
-        int timeoutSeconds = parseTimeout(arguments.path("timeout_seconds").asText("60"));
+        int timeoutSeconds = parseTimeout(arguments.path("timeout_seconds").asText(String.valueOf(defaultTimeoutSeconds)));
         String purpose = arguments.path("purpose").asText("");
 
         List<String> fullCommand = new ArrayList<String>();
@@ -130,9 +134,9 @@ public class BashTool implements Tool {
     private int parseTimeout(String text) {
         try {
             int value = Integer.parseInt(text);
-            return Math.max(1, Math.min(value, 300));
+            return Math.max(1, Math.min(value, maxTimeoutSeconds));
         } catch (Exception ignored) {
-            return 60;
+            return defaultTimeoutSeconds;
         }
     }
 }

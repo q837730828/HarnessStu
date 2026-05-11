@@ -1,5 +1,7 @@
 # Agent Harness MVP
 
+> 🎉 欢迎来到 Agent Harness MVP！这是一个探索 AI agent 工具调用机制的学习项目。
+
 一个用 Java 写的极小 Claude Code 风格闭环，用来理解 agent harness 的核心结构：
 
 ```text
@@ -30,6 +32,8 @@ $env:DEEPSEEK_MODEL="deepseek-v4-flash"
 $env:DEEPSEEK_BASE_URL="https://api.deepseek.com"
 ```
 
+也可以创建 `.harness/settings.json` 配置运行时。参考 `settings.example.json`。
+
 构建并运行：
 
 ```powershell
@@ -55,16 +59,26 @@ java -jar target/agent-harness-0.1.0.jar "看看这个项目里有哪些文件"
 
 `bash` 是 MVP3 的核心工具。它用于验证编辑结果，会把 `command`、`exit_code`、`elapsed_ms` 和命令输出回灌给模型。权限层只允许单条 allowlist 命令，并阻止 `;`、管道、重定向、`&&`、`||` 等 shell 组合写法。
 
+## MVP4 runtime
+
+MVP4 增加了工程化运行时能力：
+
+- `settings.json`: 从 `.harness/settings.json` 加载模型、步数、压缩阈值、bash allowlist/blocklist 等配置
+- hooks: 打印 `UserPromptSubmit`、`PreModelCall`、`PostModelCall`、`PreToolUse`、`PostToolUse`、`PreCompact`、`PostCompact`、`Stop`、`SessionEnd`
+- project memory: 启动时自动读取 `HARNESS.md`、`CLAUDE.md`、`AGENTS.md` 并注入 system prompt
+- slash commands: 交互模式支持 `/help`、`/tools`、`/status`、`/diff`、`/sessions`、`/resume latest`、`/resume <session-file>`、`/compact`
+- session resume: 新会话日志会保存结构化 message，可用 `/resume` 恢复
+- compaction: 消息超过阈值后，把旧上下文压缩成本地摘要，并保留最近消息
+
 ## 日志怎么看
 
 程序会打印这些阶段：
 
 - `[HARNESS]`: harness 自身状态
-- `[MODEL INPUT]`: 本轮真正发给模型的 messages 和 tools
 - `[MODEL REQUEST JSON]`: 脱敏后的 HTTP 请求体 JSON 结构
 - `[MODEL HTTP]`: HTTP 请求状态
 - `[MODEL RESPONSE JSON]`: 脱敏后的 HTTP 响应体 JSON 结构
-- `[MODEL OUTPUT]`: 模型返回内容、token usage、tool calls
+- `[HOOK]`: hooks 生命周期事件
 - `[ASSISTANT]`: 模型自然语言输出
 - `[TOOL]`: 工具调用和结果
 - `[PERMISSION]`: 权限判断
@@ -72,7 +86,7 @@ java -jar target/agent-harness-0.1.0.jar "看看这个项目里有哪些文件"
 - `[VALIDATION]`: `bash` 验证命令的执行状态
 - `[OBSERVATION]`: 回灌给模型的工具结果
 
-所有 stage 会以中英双语显示，例如 `[MODEL INPUT/模型输入]`、`[PERMISSION/权限]`。
+所有 stage 会以中英双语显示，例如 `[MODEL REQUEST JSON/模型请求体]`、`[PERMISSION/权限]`。
 
 注意：DeepSeek thinking mode 返回的 `reasoning_content` 只打印字符数或占位符，不打印具体内容；harness 会把它保存在会话内存里并在后续请求中回传，这是 provider 协议要求。
 
@@ -82,4 +96,3 @@ java -jar target/agent-harness-0.1.0.jar "看看这个项目里有哪些文件"
 .harness/sessions/
 ```
 
-这个 MVP 的重点不是功能完整，而是把 Claude Code 类工具的“心跳”露出来。
