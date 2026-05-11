@@ -40,6 +40,9 @@ public class PermissionPolicy {
         if ("list_files".equals(call.name()) || "read_file".equals(call.name()) || "grep".equals(call.name())) {
             return PermissionDecision.allow("read-only workspace tool");
         }
+        if ("todo_read".equals(call.name()) || "todo_write".equals(call.name())) {
+            return PermissionDecision.allow("agent planning tool with structured validation");
+        }
         if ("edit_file".equals(call.name())) {
             return checkEditFile(call);
         }

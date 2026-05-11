@@ -63,6 +63,9 @@ public class ConsoleLog {
         if ("TOOL".equals(stage)) {
             return "TOOL/\u5de5\u5177";
         }
+        if ("TODO".equals(stage)) {
+            return "TODO/\u4efb\u52a1";
+        }
         if ("PERMISSION".equals(stage)) {
             return "PERMISSION/\u6743\u9650";
         }
