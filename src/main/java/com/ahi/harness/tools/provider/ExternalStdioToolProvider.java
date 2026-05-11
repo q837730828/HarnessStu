@@ -5,8 +5,7 @@ import com.ahi.harness.config.HarnessSettings;
 import com.ahi.harness.tools.Tool;
 import com.ahi.harness.tools.external.ExternalStdioClient;
 import com.ahi.harness.tools.external.ExternalStdioTool;
-import com.ahi.harness.tools.external.McpStdioClient;
-import com.ahi.harness.tools.external.McpStreamableHttpClient;
+import com.ahi.harness.tools.external.McpServerManager;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -19,12 +18,21 @@ public class ExternalStdioToolProvider implements ToolProvider {
     private final File workspace;
     private final HarnessSettings.ExternalToolServer server;
     private final ConsoleLog log;
+    private final McpServerManager mcpManager;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public ExternalStdioToolProvider(File workspace, HarnessSettings.ExternalToolServer server, ConsoleLog log) {
+        this(workspace, server, log, null);
+    }
+
+    public ExternalStdioToolProvider(File workspace,
+                                     HarnessSettings.ExternalToolServer server,
+                                     ConsoleLog log,
+                                     McpServerManager mcpManager) {
         this.workspace = workspace;
         this.server = server;
         this.log = log;
+        this.mcpManager = mcpManager;
     }
 
     @Override
@@ -32,9 +40,15 @@ public class ExternalStdioToolProvider implements ToolProvider {
         List<Tool> tools = new ArrayList<Tool>();
         JsonNode toolDefs;
         if ("streamable_http".equalsIgnoreCase(server.type())) {
-            toolDefs = new McpStreamableHttpClient(server, log).listTools().path("tools");
+            if (mcpManager != null) {
+                return mcpManager.loadTools(server);
+            }
+            throw new IllegalStateException("MCP manager is required for streamable_http server: " + server.name());
         } else if ("mcp".equalsIgnoreCase(server.protocol())) {
-            toolDefs = new McpStdioClient(workspace, server, log).listTools().path("tools");
+            if (mcpManager != null) {
+                return mcpManager.loadTools(server);
+            }
+            throw new IllegalStateException("MCP manager is required for MCP stdio server: " + server.name());
         } else {
             ObjectNode request = mapper.createObjectNode();
             request.put("type", "list_tools");

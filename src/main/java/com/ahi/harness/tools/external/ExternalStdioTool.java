@@ -18,6 +18,7 @@ public class ExternalStdioTool implements Tool {
     private final String description;
     private final ObjectNode parameters;
     private final ConsoleLog log;
+    private final McpServerManager mcpManager;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public ExternalStdioTool(File workspace,
@@ -27,6 +28,17 @@ public class ExternalStdioTool implements Tool {
                              String description,
                              ObjectNode parameters,
                              ConsoleLog log) {
+        this(workspace, server, externalName, exposedName, description, parameters, log, null);
+    }
+
+    public ExternalStdioTool(File workspace,
+                             HarnessSettings.ExternalToolServer server,
+                             String externalName,
+                             String exposedName,
+                             String description,
+                             ObjectNode parameters,
+                             ConsoleLog log,
+                             McpServerManager mcpManager) {
         this.workspace = workspace;
         this.server = server;
         this.externalName = externalName;
@@ -34,6 +46,7 @@ public class ExternalStdioTool implements Tool {
         this.description = description;
         this.parameters = parameters;
         this.log = log;
+        this.mcpManager = mcpManager;
     }
 
     @Override
@@ -55,13 +68,17 @@ public class ExternalStdioTool implements Tool {
     public ToolResult execute(JsonNode arguments) throws Exception {
         log.info("EXTERNAL", "call " + exposedName + " -> " + server.command() + " " + server.args());
         if ("streamable_http".equalsIgnoreCase(server.type())) {
-            JsonNode result = new McpStreamableHttpClient(server, log).callTool(externalName, arguments);
+            JsonNode result = mcpManager == null
+                    ? new McpStreamableHttpClient(server, log).callTool(externalName, arguments)
+                    : mcpManager.callTool(server, externalName, arguments);
             if (result.has("isError") && result.path("isError").asBoolean(false)) {
                 return ToolResult.failure(extractMcpContent(result));
             }
             return ToolResult.success(extractMcpContent(result));
         } else if ("mcp".equalsIgnoreCase(server.protocol())) {
-            JsonNode result = new McpStdioClient(workspace, server, log).callTool(externalName, arguments);
+            JsonNode result = mcpManager == null
+                    ? new McpStdioClient(workspace, server, log).callTool(externalName, arguments)
+                    : mcpManager.callTool(server, externalName, arguments);
             if (result.has("isError") && result.path("isError").asBoolean(false)) {
                 return ToolResult.failure(extractMcpContent(result));
             }

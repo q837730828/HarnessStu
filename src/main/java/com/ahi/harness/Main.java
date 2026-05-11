@@ -11,6 +11,7 @@ import com.ahi.harness.permission.PermissionPolicy;
 import com.ahi.harness.session.JsonlSessionStore;
 import com.ahi.harness.tools.Tool;
 import com.ahi.harness.tools.ToolRegistry;
+import com.ahi.harness.tools.external.McpServerManager;
 import com.ahi.harness.tools.provider.BuiltInToolProvider;
 import com.ahi.harness.tools.provider.ExternalStdioToolProvider;
 import com.ahi.harness.tools.provider.ToolProvider;
@@ -40,9 +41,16 @@ public class Main {
 
         ToolRegistry registry = new ToolRegistry();
         registerTools(registry, new BuiltInToolProvider(workspace, log, settings), log);
+        McpServerManager mcpManager = new McpServerManager(workspace, settings.externalTools(), log);
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            @Override
+            public void run() {
+                mcpManager.closeAll();
+            }
+        }));
         for (HarnessSettings.ExternalToolServer server : settings.externalTools()) {
             try {
-                registerTools(registry, new ExternalStdioToolProvider(workspace, server, log), log);
+                registerTools(registry, new ExternalStdioToolProvider(workspace, server, log, mcpManager), log);
             } catch (Exception e) {
                 log.error("EXTERNAL", "Failed to load external tool server " + server.name() + ": " + e.getMessage());
             }
@@ -78,7 +86,8 @@ public class Main {
                 registry,
                 log,
                 settings.compactKeepRecentMessages(),
-                settings.externalTools()
+                settings.externalTools(),
+                mcpManager
         );
 
         String oneShot = joinArgs(args);
@@ -86,6 +95,7 @@ public class Main {
             if (!slash.handle(oneShot, conversation)) {
                 loop.run(conversation, oneShot);
             }
+            mcpManager.closeAll();
             hooks.emit("SessionEnd", "one-shot");
             return;
         }
@@ -96,6 +106,7 @@ public class Main {
             System.out.print("\nyou> ");
             String line = reader.readLine();
             if (line == null || "/exit".equalsIgnoreCase(line.trim())) {
+                mcpManager.closeAll();
                 hooks.emit("SessionEnd", "interactive");
                 break;
             }
@@ -114,6 +125,7 @@ public class Main {
         prompt.append("You are a coding agent running inside a small Java harness. ");
         prompt.append("Use tools when you need facts from the local workspace. ");
         prompt.append("Prefer list_files, read_file, and grep before answering codebase questions. ");
+        prompt.append("For multi-step tasks, use todo_write to maintain a visible plan, keep exactly one active step in_progress, and update it as work completes. ");
         prompt.append("Before editing a file, read it first. Use edit_file with exact old_text and new_text. ");
         prompt.append("After code edits, verify with bash using safe commands such as git diff or mvn test/package, then use the results to continue or finish. ");
         prompt.append("External tools are exposed with names like external__provider__tool and are subject to the same permission checks. ");

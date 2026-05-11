@@ -13,6 +13,18 @@ public class ToolRegistry {
         tools.put(tool.name(), tool);
     }
 
+    public int unregisterPrefix(String prefix) {
+        List<String> names = new ArrayList<String>(tools.keySet());
+        int removed = 0;
+        for (String name : names) {
+            if (name.startsWith(prefix)) {
+                tools.remove(name);
+                removed++;
+            }
+        }
+        return removed;
+    }
+
     public Tool get(String name) {
         return tools.get(name);
     }

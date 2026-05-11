@@ -13,13 +13,17 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 public class McpStdioClient {
     private final File workspace;
     private final HarnessSettings.ExternalToolServer server;
     private final ConsoleLog log;
     private final ObjectMapper mapper = new ObjectMapper();
+    private Process process;
+    private Writer writer;
+    private BufferedReader reader;
+    private boolean initialized;
+    private int nextId = 2;
 
     public McpStdioClient(File workspace, HarnessSettings.ExternalToolServer server, ConsoleLog log) {
         this.workspace = workspace;
@@ -28,69 +32,69 @@ public class McpStdioClient {
     }
 
     public JsonNode listTools() throws Exception {
-        ObjectNode request = mapper.createObjectNode();
-        request.put("jsonrpc", "2.0");
-        request.put("id", 2);
-        request.put("method", "tools/list");
-        request.set("params", mapper.createObjectNode());
-        return runSession(request, 30).path("result");
+        return sendRequest("tools/list", mapper.createObjectNode()).path("result");
     }
 
     public JsonNode callTool(String name, JsonNode arguments) throws Exception {
         ObjectNode params = mapper.createObjectNode();
         params.put("name", name);
         params.set("arguments", arguments == null ? mapper.createObjectNode() : arguments);
-
-        ObjectNode request = mapper.createObjectNode();
-        request.put("jsonrpc", "2.0");
-        request.put("id", 2);
-        request.put("method", "tools/call");
-        request.set("params", params);
-        return runSession(request, 60).path("result");
+        return sendRequest("tools/call", params).path("result");
     }
 
     public JsonNode listResources() throws Exception {
-        ObjectNode request = mapper.createObjectNode();
-        request.put("jsonrpc", "2.0");
-        request.put("id", 2);
-        request.put("method", "resources/list");
-        request.set("params", mapper.createObjectNode());
-        return runSession(request, 30).path("result");
+        return sendRequest("resources/list", mapper.createObjectNode()).path("result");
     }
 
     public JsonNode readResource(String uri) throws Exception {
         ObjectNode params = mapper.createObjectNode();
         params.put("uri", uri);
-        ObjectNode request = mapper.createObjectNode();
-        request.put("jsonrpc", "2.0");
-        request.put("id", 2);
-        request.put("method", "resources/read");
-        request.set("params", params);
-        return runSession(request, 30).path("result");
+        return sendRequest("resources/read", params).path("result");
     }
 
     public JsonNode listPrompts() throws Exception {
-        ObjectNode request = mapper.createObjectNode();
-        request.put("jsonrpc", "2.0");
-        request.put("id", 2);
-        request.put("method", "prompts/list");
-        request.set("params", mapper.createObjectNode());
-        return runSession(request, 30).path("result");
+        return sendRequest("prompts/list", mapper.createObjectNode()).path("result");
     }
 
     public JsonNode getPrompt(String name, JsonNode arguments) throws Exception {
         ObjectNode params = mapper.createObjectNode();
         params.put("name", name);
         params.set("arguments", arguments == null ? mapper.createObjectNode() : arguments);
-        ObjectNode request = mapper.createObjectNode();
-        request.put("jsonrpc", "2.0");
-        request.put("id", 2);
-        request.put("method", "prompts/get");
-        request.set("params", params);
-        return runSession(request, 30).path("result");
+        return sendRequest("prompts/get", params).path("result");
     }
 
-    private JsonNode runSession(ObjectNode secondRequest, int timeoutSeconds) throws Exception {
+    public synchronized void close() {
+        initialized = false;
+        closeQuietly(writer);
+        writer = null;
+        reader = null;
+        if (process != null) {
+            process.destroy();
+            process = null;
+        }
+    }
+
+    private synchronized JsonNode sendRequest(String method, ObjectNode params) throws Exception {
+        ensureStarted();
+        ObjectNode request = request(nextId++, method);
+        request.set("params", params);
+        logStdioRequest(method, request);
+        writeLine(writer, request);
+        JsonNode response = readJsonRpcResponse(reader, request.path("id").asInt());
+        logStdioResponse(method, response);
+        if (response.has("error")) {
+            throw new IllegalStateException("MCP stdio request failed for " + server.name()
+                    + " method=" + method + ": " + response.path("error").toString());
+        }
+        return response;
+    }
+
+    private void ensureStarted() throws Exception {
+        if (initialized && process != null && process.isAlive()) {
+            return;
+        }
+        close();
+
         List<String> command = new ArrayList<String>();
         command.add(server.command());
         command.addAll(server.args());
@@ -99,10 +103,10 @@ public class McpStdioClient {
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(workspace);
         builder.redirectErrorStream(true);
-        Process process = builder.start();
+        process = builder.start();
 
-        Writer writer = new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8);
-        BufferedReader reader = new BufferedReader(new java.io.InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
+        writer = new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8);
+        reader = new BufferedReader(new java.io.InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
 
         ObjectNode initialize = initializeRequest();
         logStdioRequest("initialize", initialize);
@@ -113,28 +117,11 @@ public class McpStdioClient {
             throw new IllegalStateException("MCP initialize failed: " + initializeResponse.path("error").toString());
         }
 
-        ObjectNode initialized = initializedNotification();
-        logStdioRequest("notifications/initialized", initialized);
-        writeLine(writer, initialized);
-        logStdioRequest(secondRequest.path("method").asText(), secondRequest);
-        writeLine(writer, secondRequest);
-        writer.close();
-
-        JsonNode response = readJsonRpcResponse(reader, secondRequest.path("id").asInt());
-        logStdioResponse(secondRequest.path("method").asText(), response);
-        boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
-        if (!finished) {
-            process.destroyForcibly();
-            throw new IllegalStateException("MCP stdio server timed out: " + server.name());
-        }
-        int exit = process.exitValue();
-        if (exit != 0) {
-            throw new IllegalStateException("MCP stdio server failed. exit_code=" + exit);
-        }
-        if (response.has("error")) {
-            throw new IllegalStateException("MCP request failed: " + response.path("error").toString());
-        }
-        return response;
+        ObjectNode initializedNotification = initializedNotification();
+        logStdioRequest("notifications/initialized", initializedNotification);
+        writeLine(writer, initializedNotification);
+        initialized = true;
+        nextId = 2;
     }
 
     private void logStdioRequest(String method, JsonNode body) throws Exception {
@@ -173,6 +160,14 @@ public class McpStdioClient {
         return request;
     }
 
+    private ObjectNode request(int id, String method) {
+        ObjectNode request = mapper.createObjectNode();
+        request.put("jsonrpc", "2.0");
+        request.put("id", id);
+        request.put("method", method);
+        return request;
+    }
+
     private ObjectNode initializedNotification() {
         ObjectNode notification = mapper.createObjectNode();
         notification.put("jsonrpc", "2.0");
@@ -190,12 +185,28 @@ public class McpStdioClient {
     private JsonNode readJsonRpcResponse(BufferedReader reader, int expectedId) throws Exception {
         String line;
         while ((line = reader.readLine()) != null) {
-            JsonNode node = mapper.readTree(line);
+            JsonNode node;
+            try {
+                node = mapper.readTree(line);
+            } catch (Exception e) {
+                log.info("EXTERNAL", "MCP stdio non-json line from " + server.name() + ": " + line);
+                continue;
+            }
             if (node.has("id") && node.path("id").asInt() == expectedId) {
                 return node;
             }
         }
         throw new IllegalStateException("MCP stdio server closed before response id=" + expectedId);
+    }
+
+    private void closeQuietly(Writer writer) {
+        if (writer == null) {
+            return;
+        }
+        try {
+            writer.close();
+        } catch (Exception ignored) {
+        }
     }
 
     private String pretty(JsonNode node) throws Exception {

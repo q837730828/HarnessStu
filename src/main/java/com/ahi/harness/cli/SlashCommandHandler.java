@@ -7,8 +7,7 @@ import com.ahi.harness.core.Message;
 import com.ahi.harness.session.JsonlSessionStore;
 import com.ahi.harness.tools.Tool;
 import com.ahi.harness.tools.ToolRegistry;
-import com.ahi.harness.tools.external.McpStdioClient;
-import com.ahi.harness.tools.external.McpStreamableHttpClient;
+import com.ahi.harness.tools.external.McpServerManager;
 import com.ahi.harness.tools.provider.ExternalStdioToolProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,6 +26,7 @@ public class SlashCommandHandler {
     private final ConsoleLog log;
     private final int compactKeepRecentMessages;
     private final List<HarnessSettings.ExternalToolServer> externalServers;
+    private final McpServerManager mcpManager;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public SlashCommandHandler(File workspace,
@@ -34,13 +34,15 @@ public class SlashCommandHandler {
                                ToolRegistry tools,
                                ConsoleLog log,
                                int compactKeepRecentMessages,
-                               List<HarnessSettings.ExternalToolServer> externalServers) {
+                               List<HarnessSettings.ExternalToolServer> externalServers,
+                               McpServerManager mcpManager) {
         this.workspace = workspace;
         this.sessionDirectory = sessionDirectory;
         this.tools = tools;
         this.log = log;
         this.compactKeepRecentMessages = compactKeepRecentMessages;
         this.externalServers = externalServers;
+        this.mcpManager = mcpManager;
     }
 
     public boolean handle(String line, Conversation conversation) throws Exception {
@@ -49,7 +51,7 @@ public class SlashCommandHandler {
             return false;
         }
         if ("/help".equals(trimmed)) {
-            log.block("HARNESS", "Slash commands", "/help\n/tools\n/status\n/diff\n/sessions\n/resume latest\n/resume <session-file>\n/compact\n/reload\n/mcp/resources [server]\n/mcp/read <server> <uri>\n/mcp/prompts [server]\n/mcp/get-prompt <server> <name> [json-args]\n/exit");
+            log.block("HARNESS", "Slash commands", "/help\n/tools\n/status\n/diff\n/sessions\n/resume latest\n/resume <session-file>\n/compact\n/reload\n/mcp/status\n/mcp/reload <server|all>\n/mcp/resources [server]\n/mcp/read <server> <uri>\n/mcp/prompts [server]\n/mcp/get-prompt <server> <name> [json-args]\n/exit");
             return true;
         }
         if ("/tools".equals(trimmed)) {
@@ -64,6 +66,7 @@ public class SlashCommandHandler {
             log.info("HARNESS", "workspace=" + workspace.getAbsolutePath()
                     + ", messages=" + conversation.size()
                     + ", sessions=" + JsonlSessionStore.listSessions(sessionDirectory).size());
+            log.block("EXTERNAL", "MCP status", mcpManager.statusReport());
             return true;
         }
         if ("/diff".equals(trimmed)) {
@@ -116,7 +119,10 @@ public class SlashCommandHandler {
             int failed = 0;
             for (HarnessSettings.ExternalToolServer server : externalServers) {
                 try {
-                    List<Tool> newTools = new ExternalStdioToolProvider(workspace, server, log).loadTools();
+                    if (mcpManager.isMcp(server)) {
+                        removeExternalTools(server);
+                    }
+                    List<Tool> newTools = new ExternalStdioToolProvider(workspace, server, log, mcpManager).loadTools();
                     for (Tool tool : newTools) {
                         tools.register(tool);
                         log.info("HARNESS", "re-registered tool: " + tool.name());
@@ -128,6 +134,34 @@ public class SlashCommandHandler {
                 }
             }
             log.info("HARNESS", "Reload complete: " + added + " tools loaded, " + failed + " servers failed");
+            return true;
+        }
+        if ("/mcp/status".equals(trimmed)) {
+            log.block("EXTERNAL", "MCP status", mcpManager.statusReport());
+            return true;
+        }
+        if (trimmed.startsWith("/mcp/reload")) {
+            String name = optionalArg(trimmed, "/mcp/reload");
+            if (name.trim().isEmpty()) {
+                log.error("HARNESS", "Usage: /mcp/reload <server|all>");
+                return true;
+            }
+            if ("all".equalsIgnoreCase(name)) {
+                int count = 0;
+                for (HarnessSettings.ExternalToolServer server : externalServers) {
+                    if (!mcpManager.isMcp(server)) {
+                        continue;
+                    }
+                    count += reloadMcpServer(server);
+                }
+                log.info("EXTERNAL", "MCP reload all complete: " + count + " tool(s) loaded");
+                return true;
+            }
+            HarnessSettings.ExternalToolServer server = resolveMcpServer(name);
+            if (server != null) {
+                int count = reloadMcpServer(server);
+                log.info("EXTERNAL", "MCP reload complete: " + server.name() + ", tools=" + count);
+            }
             return true;
         }
         if (trimmed.startsWith("/mcp/resources")) {
@@ -184,51 +218,49 @@ public class SlashCommandHandler {
     }
 
     private HarnessSettings.ExternalToolServer resolveMcpServer(String name) {
-        HarnessSettings.ExternalToolServer firstMcp = null;
-        for (HarnessSettings.ExternalToolServer server : externalServers) {
-            if (!"mcp".equalsIgnoreCase(server.protocol()) && !"streamable_http".equalsIgnoreCase(server.type())) {
-                continue;
-            }
-            if (firstMcp == null) {
-                firstMcp = server;
-            }
-            if (server.name().equals(name)) {
-                return server;
-            }
-        }
-        if (name == null || name.trim().isEmpty()) {
-            return firstMcp;
+        HarnessSettings.ExternalToolServer server = mcpManager.resolve(name);
+        if (server != null) {
+            return server;
         }
         log.error("HARNESS", "MCP server not found: " + name);
         return null;
     }
 
     private JsonNode listResources(HarnessSettings.ExternalToolServer server) throws Exception {
-        if ("streamable_http".equalsIgnoreCase(server.type())) {
-            return new McpStreamableHttpClient(server, log).listResources();
-        }
-        return new McpStdioClient(workspace, server, log).listResources();
+        return mcpManager.listResources(server);
     }
 
     private JsonNode readResource(HarnessSettings.ExternalToolServer server, String uri) throws Exception {
-        if ("streamable_http".equalsIgnoreCase(server.type())) {
-            return new McpStreamableHttpClient(server, log).readResource(uri);
-        }
-        return new McpStdioClient(workspace, server, log).readResource(uri);
+        return mcpManager.readResource(server, uri);
     }
 
     private JsonNode listPrompts(HarnessSettings.ExternalToolServer server) throws Exception {
-        if ("streamable_http".equalsIgnoreCase(server.type())) {
-            return new McpStreamableHttpClient(server, log).listPrompts();
-        }
-        return new McpStdioClient(workspace, server, log).listPrompts();
+        return mcpManager.listPrompts(server);
     }
 
     private JsonNode getPrompt(HarnessSettings.ExternalToolServer server, String name, JsonNode args) throws Exception {
-        if ("streamable_http".equalsIgnoreCase(server.type())) {
-            return new McpStreamableHttpClient(server, log).getPrompt(name, args);
+        return mcpManager.getPrompt(server, name, args);
+    }
+
+    private int reloadMcpServer(HarnessSettings.ExternalToolServer server) throws Exception {
+        removeExternalTools(server);
+        List<Tool> loaded = mcpManager.reload(server.name());
+        for (Tool tool : loaded) {
+            tools.register(tool);
+            log.info("HARNESS", "re-registered tool: " + tool.name());
         }
-        return new McpStdioClient(workspace, server, log).getPrompt(name, args);
+        return loaded.size();
+    }
+
+    private void removeExternalTools(HarnessSettings.ExternalToolServer server) {
+        int removed = tools.unregisterPrefix("external__" + sanitize(server.name()) + "__");
+        if (removed > 0) {
+            log.info("HARNESS", "removed " + removed + " cached tool(s) for " + server.name());
+        }
+    }
+
+    private String sanitize(String value) {
+        return value.replaceAll("[^A-Za-z0-9_]", "_");
     }
 
     private File resolveSession(String command) {

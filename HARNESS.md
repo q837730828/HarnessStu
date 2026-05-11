@@ -22,6 +22,7 @@ Important modules:
 - `ToolRegistry`: exposes tools to the model.
 - `PermissionPolicy`: decides whether a tool call is allowed.
 - `JsonlSessionStore`: records resumable conversation messages.
+- `TodoReadTool` and `TodoWriteTool`: maintain visible agent planning state.
 - `HookBus`: emits lifecycle events.
 - `HarnessSettings`: loads `.harness/settings.json`.
 - `ProjectMemoryLoader`: loads this file, `CLAUDE.md`, and `AGENTS.md`.
@@ -32,6 +33,7 @@ Important modules:
 Use tools deliberately:
 
 - Use `list_files`, `read_file`, and `grep` before answering codebase questions.
+- Use `todo_write` for multi-step tasks, keep at most one item `in_progress`, and update the list as steps complete.
 - Before editing any file, read it first.
 - Use `edit_file` with exact `old_text` and `new_text`; do not guess large replacements.
 - After code edits, verify with `bash` using safe commands such as `git diff`, `mvn test`, or `mvn package`.
@@ -99,7 +101,10 @@ Current completed MVPs:
 - MVP3: validation commands through restricted `bash`
 - MVP4: runtime engineering features, including settings, hooks, memory, slash commands, resume, and compaction
 - MVP5: external tool ecosystem with provider abstraction, simple stdio adapters, MCP-style JSON-RPC stdio adapters, and Streamable HTTP transport
+- MVP6: MCP runtime manager with cached MCP clients, stdio process reuse, HTTP session reuse, MCP status, and MCP reload commands
+- MVP7: todo planning tools with structured `todo_read` and `todo_write` runtime state
 
 Possible next direction:
 
-- A fuller MCP implementation with long-lived stdio sessions, server-initiated notifications, and richer Streamable HTTP resumability
+- A fuller MCP implementation with server-initiated notifications, progress, cancellation, roots, sampling, and richer Streamable HTTP resumability
+- Richer todo integration with session resume, compaction summaries, and slash-command rendering

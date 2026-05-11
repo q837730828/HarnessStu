@@ -19,6 +19,7 @@ public class McpStreamableHttpClient {
     private final ConsoleLog log;
     private final ObjectMapper mapper = new ObjectMapper();
     private String sessionId;
+    private int nextId = 2;
 
     public McpStreamableHttpClient(HarnessSettings.ExternalToolServer server, ConsoleLog log) {
         this.server = server;
@@ -27,7 +28,7 @@ public class McpStreamableHttpClient {
 
     public JsonNode listTools() throws Exception {
         initialize();
-        ObjectNode request = request(2, "tools/list");
+        ObjectNode request = nextRequest("tools/list");
         request.set("params", mapper.createObjectNode());
         return postJsonRpc(request, true).path("result");
     }
@@ -37,14 +38,14 @@ public class McpStreamableHttpClient {
         ObjectNode params = mapper.createObjectNode();
         params.put("name", name);
         params.set("arguments", arguments == null ? mapper.createObjectNode() : arguments);
-        ObjectNode request = request(2, "tools/call");
+        ObjectNode request = nextRequest("tools/call");
         request.set("params", params);
         return postJsonRpc(request, true).path("result");
     }
 
     public JsonNode listResources() throws Exception {
         initialize();
-        ObjectNode request = request(2, "resources/list");
+        ObjectNode request = nextRequest("resources/list");
         request.set("params", mapper.createObjectNode());
         return postJsonRpc(request, true).path("result");
     }
@@ -53,14 +54,14 @@ public class McpStreamableHttpClient {
         initialize();
         ObjectNode params = mapper.createObjectNode();
         params.put("uri", uri);
-        ObjectNode request = request(2, "resources/read");
+        ObjectNode request = nextRequest("resources/read");
         request.set("params", params);
         return postJsonRpc(request, true).path("result");
     }
 
     public JsonNode listPrompts() throws Exception {
         initialize();
-        ObjectNode request = request(2, "prompts/list");
+        ObjectNode request = nextRequest("prompts/list");
         request.set("params", mapper.createObjectNode());
         return postJsonRpc(request, true).path("result");
     }
@@ -70,7 +71,7 @@ public class McpStreamableHttpClient {
         ObjectNode params = mapper.createObjectNode();
         params.put("name", name);
         params.set("arguments", arguments == null ? mapper.createObjectNode() : arguments);
-        ObjectNode request = request(2, "prompts/get");
+        ObjectNode request = nextRequest("prompts/get");
         request.set("params", params);
         return postJsonRpc(request, true).path("result");
     }
@@ -100,6 +101,11 @@ public class McpStreamableHttpClient {
         notification.put("method", "notifications/initialized");
         notification.set("params", mapper.createObjectNode());
         postJsonRpc(notification, false);
+        nextId = 2;
+    }
+
+    private synchronized ObjectNode nextRequest(String method) {
+        return request(nextId++, method);
     }
 
     private ObjectNode request(int id, String method) {

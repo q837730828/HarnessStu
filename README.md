@@ -176,3 +176,15 @@ python external-tools/demo_streamable_http_server.py 8765
 ```text
 .harness/sessions/
 ```
+
+## MVP6 MCP runtime manager
+
+MVP6 promotes MCP from one-shot client calls to a small runtime layer:
+
+- `McpServerManager`: owns MCP client cache, tool cache, status, reload, and shutdown.
+- stdio MCP clients reuse the same child process across multiple MCP requests.
+- Streamable HTTP MCP clients reuse the same client instance and `Mcp-Session-Id`.
+- `/mcp/status`: show configured MCP servers, connection state, tool/resource/prompt counts, and last error.
+- `/mcp/reload <server|all>`: close cached clients, rediscover tools, and re-register external tools.
+
+See `docs/MCP_RUNTIME.md` for the MVP6 walkthrough.
