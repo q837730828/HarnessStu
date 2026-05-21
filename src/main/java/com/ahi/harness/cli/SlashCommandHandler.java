@@ -4,6 +4,7 @@ import com.ahi.harness.ConsoleLog;
 import com.ahi.harness.config.HarnessSettings;
 import com.ahi.harness.core.Conversation;
 import com.ahi.harness.core.Message;
+import com.ahi.harness.process.Utf8Process;
 import com.ahi.harness.session.JsonlSessionStore;
 import com.ahi.harness.tools.Tool;
 import com.ahi.harness.tools.ToolRegistry;
@@ -274,6 +275,7 @@ public class SlashCommandHandler {
     private String runGitDiff() throws Exception {
         ProcessBuilder builder = new ProcessBuilder("git", "diff");
         builder.directory(workspace);
+        Utf8Process.apply(builder);
         builder.redirectErrorStream(true);
         Process process = builder.start();
         BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));

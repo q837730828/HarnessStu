@@ -1,5 +1,11 @@
 package com.ahi.harness.tools;
 
+/**
+ * Normalized result returned by every tool.
+ *
+ * AgentLoop converts this into a provider-facing tool observation by prefixing
+ * success/failure state.
+ */
 public class ToolResult {
     private final boolean success;
     private final String content;

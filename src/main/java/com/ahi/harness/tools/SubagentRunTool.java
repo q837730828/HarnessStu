@@ -19,6 +19,12 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Runs a focused child agent with its own conversation.
+ *
+ * The parent receives only a compact summary, so exploratory search and failed
+ * attempts do not pollute the parent's active context.
+ */
 public class SubagentRunTool implements Tool {
     private static final int MAX_TASK_CHARS = 2000;
     private static final int MAX_STEPS = 16;
@@ -86,13 +92,16 @@ public class SubagentRunTool implements Tool {
 
         log.section("SUBAGENT RUN / Subagent run: " + definition.name());
         log.info("SUBAGENT", "task=" + task + ", max_steps=" + maxSteps + ", tools=" + definition.allowedTools());
+        if (!definition.model().isEmpty() || !definition.mcpServers().isEmpty()) {
+            log.info("SUBAGENT", "declared model=" + definition.model() + ", mcp_servers=" + definition.mcpServers() + " (metadata only in MVP11)");
+        }
 
         Conversation childConversation = new Conversation();
         childConversation.addSystem(systemPrompt(definition));
         AgentLoop loop = new AgentLoop(
                 model,
                 childTools,
-                new PermissionPolicy(),
+                new PermissionPolicy(java.util.Arrays.asList("git status"), java.util.Arrays.asList("rm ", "del ", "git reset", "remove-item"), java.util.Collections.<String>emptyList(), definition.permissionMode()),
                 new NoopSessionStore(),
                 log,
                 new HookBus(log),
@@ -119,6 +128,11 @@ public class SubagentRunTool implements Tool {
     private ToolRegistry childToolRegistry(SubagentDefinition definition) {
         ToolRegistry registry = new ToolRegistry();
         for (String toolName : definition.allowedTools()) {
+            // Project subagents can only receive tools that already exist in the
+            // parent registry and pass SubagentLoader validation.
+            if (definition.disallowedTools().contains(toolName)) {
+                continue;
+            }
             Tool tool = parentTools.get(toolName);
             if (tool != null) {
                 registry.register(tool);
@@ -134,9 +148,13 @@ public class SubagentRunTool implements Tool {
         prompt.append("You cannot edit files, run shell commands, or call other subagents in this MVP. ");
         prompt.append("When done, return a concise final summary for the parent agent.");
 
-        String memory = new ProjectMemoryLoader().load(workspace);
-        if (!memory.trim().isEmpty()) {
-            prompt.append("\n\n").append(memory);
+        if (definition.memory()) {
+            // Memory is opt-in because subagents should usually stay narrow and
+            // cheap; loading project memory widens their context.
+            String memory = new ProjectMemoryLoader().load(workspace);
+            if (!memory.trim().isEmpty()) {
+                prompt.append("\n\n").append(memory);
+            }
         }
         return prompt.toString();
     }

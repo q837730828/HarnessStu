@@ -8,7 +8,12 @@ import com.ahi.harness.hooks.HookBus;
 import com.ahi.harness.memory.ProjectMemoryLoader;
 import com.ahi.harness.model.DeepSeekClient;
 import com.ahi.harness.permission.PermissionPolicy;
+import com.ahi.harness.permission.PermissionPrompter;
+import com.ahi.harness.permission.PermissionStore;
+import com.ahi.harness.session.CompactionArchiveStore;
 import com.ahi.harness.session.JsonlSessionStore;
+import com.ahi.harness.session.ObservationArchiveStore;
+import com.ahi.harness.session.TraceStore;
 import com.ahi.harness.subagent.SubagentRegistry;
 import com.ahi.harness.tools.SubagentRunTool;
 import com.ahi.harness.tools.Tool;
@@ -23,15 +28,20 @@ import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
+/**
+ * Program entrypoint. This class intentionally wires the runtime by hand so the
+ * learning path is visible: settings -> tools -> model -> loop -> CLI.
+ */
 public class Main {
     public static void main(String[] args) throws Exception {
         File workspace = new File(".").getCanonicalFile();
         ConsoleLog log = new ConsoleLog();
         HarnessSettings settings = HarnessSettings.load(workspace);
-        HookBus hooks = new HookBus(log);
+        HookBus hooks = new HookBus(workspace, log, settings.hooks());
 
         log.info("HARNESS", "workspace = " + workspace.getAbsolutePath());
         log.info("HARNESS", "model = " + settings.model());
+        log.info("HARNESS", "permission_mode = " + settings.permissionMode());
         log.info("HARNESS", "settings = .harness/settings.json"
                 + (new File(workspace, ".harness/settings.json").exists() ? " loaded" : " default"));
 
@@ -50,8 +60,13 @@ public class Main {
                 settings.logJsonBodies()
         );
 
+        // Built-ins are registered first so subagents can receive a safe subset
+        // of the same tool instances that the parent agent sees.
         registerTools(registry, new BuiltInToolProvider(workspace, log, settings), log);
         registerTool(registry, new SubagentRunTool(workspace, model, registry, new SubagentRegistry(workspace, log), log), log);
+
+        // MCP servers are managed as runtime resources instead of throwaway
+        // clients. This preserves stdio processes and HTTP session ids.
         McpServerManager mcpManager = new McpServerManager(workspace, settings.externalTools(), log);
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             @Override
@@ -70,18 +85,27 @@ public class Main {
         Conversation conversation = new Conversation();
         conversation.addSystem(systemPrompt(workspace));
 
+        // Session logs, compaction archives, observation archives, and traces are
+        // separate stores so each concern can evolve without complicating the loop.
         File sessionDirectory = new File(workspace, ".harness/sessions");
         JsonlSessionStore sessionStore = new JsonlSessionStore(sessionDirectory, log);
+        TraceStore traceStore = new TraceStore(workspace);
+        log.info("HARNESS", "trace = " + traceStore.path());
         AgentLoop loop = new AgentLoop(
                 model,
                 registry,
-                new PermissionPolicy(settings.bashAllowedPrefixes(), settings.bashBlockedTokens(), settings.externalToolAllowlist()),
+                new PermissionPolicy(settings.bashAllowedPrefixes(), settings.bashBlockedTokens(), settings.externalToolAllowlist(), settings.permissionMode()),
                 sessionStore,
                 log,
                 hooks,
+                new PermissionPrompter(log, new PermissionStore(workspace)),
+                new CompactionArchiveStore(workspace),
+                new ObservationArchiveStore(workspace, settings.observationMaxActiveChars()),
+                traceStore,
                 settings.maxSteps(),
                 settings.compactMaxMessages(),
-                settings.compactKeepRecentMessages()
+                settings.compactKeepRecentMessages(),
+                settings.compactMaxTokens()
         );
         SlashCommandHandler slash = new SlashCommandHandler(
                 workspace,
@@ -124,10 +148,13 @@ public class Main {
     }
 
     private static String systemPrompt(File workspace) throws Exception {
+        // Keep the always-on prompt short. Detailed project knowledge should be
+        // pulled through doc_read or skill_load so the stable prefix stays small.
         StringBuilder prompt = new StringBuilder();
         prompt.append("You are a coding agent running inside a small Java harness. ");
         prompt.append("Use tools when you need facts from the local workspace. ");
-        prompt.append("Prefer list_files, read_file, and grep before answering codebase questions. ");
+        prompt.append("Prefer list_files, read_file, grep, doc_read, and skill_load before answering codebase questions. ");
+        prompt.append("Keep stable instructions short: use doc_read for detailed project docs and skill_load for task-specific Markdown skills instead of assuming all context is already loaded. ");
         prompt.append("For multi-step tasks, use todo_write to maintain a visible plan, keep exactly one active step in_progress, and update it as work completes. ");
         prompt.append("Use subagent_run to delegate focused read-only exploration or review work to explorer, reviewer, or project subagents loaded from .harness/agents/*.md when it helps. ");
         prompt.append("Use subagent_write, not edit_file, when the user asks to create or update a project subagent definition. ");

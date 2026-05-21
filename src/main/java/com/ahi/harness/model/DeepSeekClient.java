@@ -24,6 +24,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Minimal OpenAI-compatible chat completions client for DeepSeek.
+ *
+ * It translates the harness Conversation/ToolRegistry into HTTP JSON and turns
+ * assistant tool calls back into ToolCall objects for AgentLoop.
+ */
 public class DeepSeekClient implements ModelClient {
     private final String baseUrl;
     private final String apiKey;
@@ -89,6 +95,8 @@ public class DeepSeekClient implements ModelClient {
             ObjectNode node = mapper.createObjectNode();
             node.put("role", message.role());
             if ("tool".equals(message.role())) {
+                // Tool messages must preserve the provider's tool_call_id so the
+                // model can match observations to the request it made.
                 node.put("tool_call_id", message.toolCallId());
                 node.put("content", message.content());
             } else if ("assistant".equals(message.role())) {
@@ -98,6 +106,8 @@ public class DeepSeekClient implements ModelClient {
                     node.put("content", message.content());
                 }
                 if (message.reasoningContent() != null && !message.reasoningContent().isEmpty()) {
+                    // DeepSeek reasoning mode expects reasoning_content to be
+                    // replayed, but logs hide the raw text.
                     node.put("reasoning_content", message.reasoningContent());
                 }
                 if (!message.toolCalls().isEmpty()) {
@@ -125,6 +135,8 @@ public class DeepSeekClient implements ModelClient {
     private ArrayNode buildTools(ToolRegistry registry) {
         ArrayNode array = mapper.createArrayNode();
         for (Tool tool : registry.all()) {
+            // The harness has one Tool abstraction; the model sees each one as an
+            // OpenAI-style function tool.
             ObjectNode root = mapper.createObjectNode();
             root.put("type", "function");
             ObjectNode function = mapper.createObjectNode();
@@ -154,6 +166,8 @@ public class DeepSeekClient implements ModelClient {
                 String id = item.path("id").asText();
                 String name = item.path("function").path("name").asText();
                 String argsText = item.path("function").path("arguments").asText("{}");
+                // Arguments arrive as JSON text inside the provider response.
+                // Parse once here so tools receive structured JsonNode input.
                 JsonNode args = mapper.readTree(argsText == null || argsText.trim().isEmpty() ? "{}" : argsText);
                 calls.add(new ToolCall(id, name, args, argsText));
             }
@@ -190,6 +204,8 @@ public class DeepSeekClient implements ModelClient {
                 String key = field.getKey();
                 JsonNode value = field.getValue();
                 if ("reasoning_content".equals(key)) {
+                    // Reasoning can be provider-sensitive and very large; keep
+                    // only a placeholder in logs while preserving it in memory.
                     String text = value == null || value.isNull() ? "" : value.asText("");
                     out.put(key, "<hidden reasoning_content, " + text.length() + " chars>");
                 } else if ("content".equals(key) && value != null && value.isTextual()) {

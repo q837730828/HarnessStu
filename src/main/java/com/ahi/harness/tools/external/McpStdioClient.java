@@ -2,6 +2,7 @@ package com.ahi.harness.tools.external;
 
 import com.ahi.harness.ConsoleLog;
 import com.ahi.harness.config.HarnessSettings;
+import com.ahi.harness.process.Utf8Process;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -102,6 +103,7 @@ public class McpStdioClient {
 
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(workspace);
+        Utf8Process.apply(builder);
         builder.redirectErrorStream(true);
         process = builder.start();
 

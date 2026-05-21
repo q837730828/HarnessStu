@@ -3,6 +3,12 @@ package com.ahi.harness.tools;
 import java.io.File;
 import java.io.IOException;
 
+/**
+ * Shared path guard for workspace tools.
+ *
+ * Always resolve through canonical paths before reading or writing so relative
+ * paths and symlinks cannot escape the configured workspace.
+ */
 final class WorkspacePaths {
     private WorkspacePaths() {
     }
@@ -23,5 +29,31 @@ final class WorkspacePaths {
             throw new IllegalArgumentException("path escapes workspace: " + path);
         }
         return canonicalTarget;
+    }
+
+    static boolean isCompactionArchivePath(File workspace, File file) {
+        return isHarnessArchivePath(workspace, file, "compactions");
+    }
+
+    static boolean isObservationArchivePath(File workspace, File file) {
+        return isHarnessArchivePath(workspace, file, "observations");
+    }
+
+    static boolean isReadableHarnessArchivePath(File workspace, File file) {
+        // Most .harness files are private runtime state. Archives are the
+        // explicit recovery path referenced by compaction/observation summaries.
+        return isCompactionArchivePath(workspace, file) || isObservationArchivePath(workspace, file);
+    }
+
+    private static boolean isHarnessArchivePath(File workspace, File file, String directoryName) {
+        try {
+            File root = new File(new File(workspace, ".harness"), directoryName).getCanonicalFile();
+            File target = file.getCanonicalFile();
+            String rootPath = root.getPath();
+            String targetPath = target.getPath();
+            return targetPath.equals(rootPath) || targetPath.startsWith(rootPath + File.separator);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 }

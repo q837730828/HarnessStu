@@ -4,6 +4,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * In-memory message list sent to the model.
+ *
+ * This class knows just enough about roles to keep system messages stable and to
+ * compact older turns without breaking assistant/tool pairing.
+ */
 public class Conversation {
     private final List<Message> messages = new ArrayList<Message>();
 
@@ -40,9 +46,28 @@ public class Conversation {
         return messages.size();
     }
 
-    public void compact(int keepRecentMessages) {
+    public int estimatedTokens() {
+        // Cheap approximation used for warnings and compaction. It is not a
+        // tokenizer, but chars/4 is good enough for budget guardrails.
+        int chars = 0;
+        for (Message message : messages) {
+            chars += length(message.role());
+            chars += length(message.content());
+            chars += length(message.reasoningContent());
+            chars += length(message.toolCallId());
+            for (ToolCall call : message.toolCalls()) {
+                chars += length(call.id());
+                chars += length(call.name());
+                chars += length(call.argumentsJson());
+            }
+            chars += 8;
+        }
+        return Math.max(1, (chars + 3) / 4);
+    }
+
+    public List<Message> compact(int keepRecentMessages, String archivePath) {
         if (messages.size() <= keepRecentMessages + 2) {
-            return;
+            return Collections.emptyList();
         }
         List<Message> system = new ArrayList<Message>();
         int firstNonSystem = 0;
@@ -52,15 +77,27 @@ public class Conversation {
         }
 
         int keepStart = Math.max(firstNonSystem, messages.size() - keepRecentMessages);
+        // If the boundary lands on a tool result, pull the paired assistant
+        // message back into active context too.
         while (keepStart > firstNonSystem && "tool".equals(messages.get(keepStart).role())) {
             keepStart--;
         }
 
+        List<Message> archived = new ArrayList<Message>(messages.subList(firstNonSystem, keepStart));
+        if (archived.isEmpty()) {
+            return Collections.emptyList();
+        }
+
         StringBuilder summary = new StringBuilder();
-        summary.append("Earlier conversation was compacted locally. Key trace follows:\n");
-        for (int i = firstNonSystem; i < keepStart; i++) {
-            Message message = messages.get(i);
-            summary.append("- ").append(message.role()).append(": ").append(trim(message.content(), 240));
+        // Active context carries only an index and a path. The full content stays
+        // in the archive so compaction is lossy for the prompt but traceable.
+        summary.append("Earlier conversation was compacted locally into an archive file.\n");
+        summary.append("Archive path: ").append(archivePath).append('\n');
+        summary.append("Archived messages: ").append(archived.size()).append('\n');
+        summary.append("This compaction is lossy in active context but traceable: if needed, use read_file or grep on the archive path to recover details.\n");
+        summary.append("Brief index:\n");
+        for (Message message : archived) {
+            summary.append("- ").append(message.role()).append(": ").append(trim(message.content(), 160));
             if (!message.toolCalls().isEmpty()) {
                 summary.append(" tool_calls=").append(message.toolCalls().size());
             }
@@ -72,6 +109,11 @@ public class Conversation {
         compacted.add(Message.system(summary.toString()));
         compacted.addAll(messages.subList(keepStart, messages.size()));
         replaceMessages(compacted);
+        return archived;
+    }
+
+    public void compact(int keepRecentMessages) {
+        compact(keepRecentMessages, "<no archive>");
     }
 
     public List<Message> messages() {
@@ -87,5 +129,9 @@ public class Conversation {
             return normalized;
         }
         return normalized.substring(0, maxChars) + "...";
+    }
+
+    private int length(String value) {
+        return value == null ? 0 : value.length();
     }
 }

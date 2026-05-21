@@ -13,6 +13,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Runtime owner for MCP servers.
+ *
+ * The manager centralizes connection reuse, tool discovery, status reporting,
+ * and reload so provider/tool/slash-command code do not each create their own
+ * client lifecycle.
+ */
 public class McpServerManager {
     private final File workspace;
     private final List<HarnessSettings.ExternalToolServer> servers;
@@ -44,6 +51,8 @@ public class McpServerManager {
         }
         List<Tool> cached = toolCache.get(server.name());
         if (cached != null) {
+            // Tool schemas are stable until reload; reuse them to avoid repeated
+            // initialize/tools-list traffic and preserve sessions.
             markConnected(server.name(), cached.size());
             return cached;
         }
@@ -56,6 +65,8 @@ public class McpServerManager {
             throw new IllegalArgumentException("Not an MCP server: " + serverName);
         }
         close(serverName);
+        // Reload drops the cached client first so stdio processes and HTTP
+        // sessions are recreated from a clean protocol handshake.
         JsonNode toolDefs = clientListTools(server).path("tools");
         List<Tool> tools = new ArrayList<Tool>();
         if (!toolDefs.isArray()) {
@@ -102,6 +113,7 @@ public class McpServerManager {
             markConnected(server.name(), cachedToolCount(server.name()));
             return result;
         } catch (Exception e) {
+            // State is diagnostic only; callers still receive the original error.
             markFailed(server.name(), e.getMessage());
             throw e;
         }
@@ -162,6 +174,8 @@ public class McpServerManager {
     }
 
     public String statusReport() {
+        // Slash commands print this human-readable view; the manager keeps only
+        // lightweight counters rather than full protocol history.
         StringBuilder out = new StringBuilder();
         for (ServerState state : states.values()) {
             out.append("- ").append(state.name)

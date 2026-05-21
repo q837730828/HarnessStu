@@ -4,7 +4,10 @@
   "max_steps": 48,
   "compact_max_messages": 40,
   "compact_keep_recent_messages": 16,
+  "compact_max_tokens": 60000,
+  "observation_max_active_chars": 12000,
   "log_json_bodies": true,
+  "permission_mode": "strict",
   "bash_default_timeout_seconds": 60,
   "bash_max_timeout_seconds": 300,
   "bash_allowed_prefixes": [
@@ -40,5 +43,26 @@
     "external__demo__echo",
     "external__demo_http__time_now",
     "external__demo_http__echo"
+  ],
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "command": "Write-Output \"hook $env:HARNESS_HOOK_EVENT $env:HARNESS_HOOK_DETAIL\"",
+      "blocking": false,
+      "timeout_seconds": 10
+    },
+    {
+      "event": "PreToolUse",
+      "tools": [
+        "bash",
+        "edit_file"
+      ],
+      "script": "hooks/pre_tool_use.ps1",
+      "args": [
+        "example-arg"
+      ],
+      "blocking": true,
+      "timeout_seconds": 10
+    }
   ]
 }

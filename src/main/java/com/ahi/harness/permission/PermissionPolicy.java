@@ -6,15 +6,27 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
+/**
+ * Central policy for deciding whether a model-requested tool call may execute.
+ *
+ * Tools can be registered dynamically, but every mutation or external boundary
+ * should pass through this class before side effects happen.
+ */
 public class PermissionPolicy {
     private final List<String> bashAllowedPrefixes;
     private final List<String> bashBlockedTokens;
     private final List<String> externalToolAllowlist;
+    private final String permissionMode;
 
     public PermissionPolicy(List<String> bashAllowedPrefixes, List<String> bashBlockedTokens, List<String> externalToolAllowlist) {
+        this(bashAllowedPrefixes, bashBlockedTokens, externalToolAllowlist, "strict");
+    }
+
+    public PermissionPolicy(List<String> bashAllowedPrefixes, List<String> bashBlockedTokens, List<String> externalToolAllowlist, String permissionMode) {
         this.bashAllowedPrefixes = bashAllowedPrefixes;
         this.bashBlockedTokens = bashBlockedTokens;
         this.externalToolAllowlist = externalToolAllowlist;
+        this.permissionMode = permissionMode == null ? "strict" : permissionMode.trim().toLowerCase(Locale.ROOT);
     }
 
     public PermissionPolicy() {
@@ -37,7 +49,13 @@ public class PermissionPolicy {
     }
 
     public PermissionDecision check(ToolCall call) {
-        if ("list_files".equals(call.name()) || "read_file".equals(call.name()) || "grep".equals(call.name())) {
+        // Read-only context tools are always safe because their own
+        // implementations still enforce workspace path boundaries.
+        if ("list_files".equals(call.name())
+                || "read_file".equals(call.name())
+                || "grep".equals(call.name())
+                || "doc_read".equals(call.name())
+                || "skill_load".equals(call.name())) {
             return PermissionDecision.allow("read-only workspace tool");
         }
         if ("todo_read".equals(call.name()) || "todo_write".equals(call.name())) {
@@ -47,7 +65,7 @@ public class PermissionPolicy {
             return PermissionDecision.allow("read-only subagent delegation tool");
         }
         if ("subagent_write".equals(call.name())) {
-            return PermissionDecision.allow("structured project subagent definition writer");
+            return modeDecision("structured project subagent definition writer", "subagent_write");
         }
         if ("edit_file".equals(call.name())) {
             return checkEditFile(call);
@@ -62,8 +80,16 @@ public class PermissionPolicy {
     }
 
     private PermissionDecision checkExternal(String name) {
+        // External tools are discovered at runtime, so the allowlist is keyed by
+        // their exposed name: external__server__tool.
+        if (externalToolAllowlist.contains("*")) {
+            return PermissionDecision.allow("external tool wildcard allowlist: " + name);
+        }
         if (externalToolAllowlist.contains(name)) {
             return PermissionDecision.allow("external tool allowlisted: " + name);
+        }
+        if ("ask".equals(permissionMode)) {
+            return PermissionDecision.ask("external tool is not in external_tool_allowlist: " + name);
         }
         return PermissionDecision.deny("external tool is not in external_tool_allowlist: " + name);
     }
@@ -78,16 +104,21 @@ public class PermissionPolicy {
             return PermissionDecision.deny("edit_file requires old_text and new_text");
         }
         if (normalized.startsWith(".git/")
-                || normalized.startsWith(".harness/")
                 || normalized.startsWith(".idea/")
                 || normalized.startsWith("target/")
                 || normalized.contains("/.git/")
-                || normalized.contains("/.harness/")
                 || normalized.contains("/.idea/")
                 || normalized.contains("/target/")) {
             return PermissionDecision.deny("editing generated, private, or VCS metadata paths is blocked");
         }
-        return PermissionDecision.allow("workspace edit with exact replacement, diff, and backup");
+        if (normalized.startsWith(".harness/") || normalized.contains("/.harness/")) {
+            // Runtime state is intentionally not editable through generic text
+            // replacement. Dedicated tools own structured .harness writes.
+            if (!normalized.equals(".harness/settings.json") && !normalized.endsWith("/.harness/settings.json")) {
+                return PermissionDecision.deny("editing harness metadata paths is blocked; only .harness/settings.json is editable");
+            }
+        }
+        return modeDecision("workspace edit with exact replacement, diff, and backup", "edit_file");
     }
 
     private PermissionDecision checkBash(String command) {
@@ -96,6 +127,8 @@ public class PermissionPolicy {
             return PermissionDecision.deny("empty command");
         }
         if (hasShellControlOperator(normalized)) {
+            // The bash tool executes through PowerShell. Blocking composition
+            // keeps validation commands single-purpose and easier to audit.
             return PermissionDecision.deny("shell control operators are blocked; run one validation command at a time");
         }
 
@@ -106,12 +139,32 @@ public class PermissionPolicy {
         }
 
         for (String prefix : bashAllowedPrefixes) {
+            if ("*".equals(prefix)) {
+                return modeDecision("wildcard command allowlist", "bash");
+            }
             if (normalized.equals(prefix) || normalized.startsWith(prefix + " ")) {
-                return PermissionDecision.allow("allowlisted command prefix: " + prefix);
+                return modeDecision("allowlisted command prefix: " + prefix, "bash");
             }
         }
 
+        if ("danger-full-access".equals(permissionMode)) {
+            return PermissionDecision.allow("danger-full-access command after blocked-token checks");
+        }
+        if ("ask".equals(permissionMode)) {
+            return PermissionDecision.ask("command is not in the allowlist");
+        }
         return PermissionDecision.deny("command is not in the allowlist");
+    }
+
+    private PermissionDecision modeDecision(String reason, String tool) {
+        if ("ask".equals(permissionMode)
+                && ("edit_file".equals(tool) || "bash".equals(tool) || "subagent_write".equals(tool))) {
+            return PermissionDecision.ask(reason);
+        }
+        if ("danger-full-access".equals(permissionMode)) {
+            return PermissionDecision.allow("danger-full-access: " + reason);
+        }
+        return PermissionDecision.allow(reason);
     }
 
     private boolean hasShellControlOperator(String command) {

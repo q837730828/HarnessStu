@@ -99,13 +99,35 @@ public class GrepTool implements Tool {
 
     private boolean shouldSkip(File file) {
         String name = file.getName();
+        if (".harness".equals(name)) {
+            return false;
+        }
+        if (file.getParentFile() != null && ".harness".equals(file.getParentFile().getName())) {
+            return !"compactions".equals(name) && !"observations".equals(name);
+        }
+        if (isInsideHarnessButNotCompactions(file)) {
+            return true;
+        }
         return ".git".equals(name)
                 || "target".equals(name)
                 || "node_modules".equals(name)
-                || ".harness".equals(name)
                 || ".idea".equals(name)
                 || name.endsWith(".class")
                 || name.endsWith(".jar");
+    }
+
+    private boolean isInsideHarnessButNotCompactions(File file) {
+        try {
+            File harness = new File(workspace, ".harness").getCanonicalFile();
+            File target = file.getCanonicalFile();
+            String harnessPath = harness.getPath();
+            String targetPath = target.getPath();
+            if (!targetPath.equals(harnessPath) && targetPath.startsWith(harnessPath + File.separator)) {
+                return !WorkspacePaths.isReadableHarnessArchivePath(workspace, target);
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     private String relative(File file) {

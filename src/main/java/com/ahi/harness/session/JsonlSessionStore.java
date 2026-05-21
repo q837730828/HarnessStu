@@ -22,6 +22,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * Append-only session log used for /resume.
+ *
+ * JSONL keeps every event independently readable and makes partial recovery
+ * possible even if a later write is interrupted.
+ */
 public class JsonlSessionStore implements SessionStore {
     private final ObjectMapper mapper = new ObjectMapper();
     private final File file;
@@ -51,6 +57,8 @@ public class JsonlSessionStore implements SessionStore {
 
     @Override
     public synchronized void appendMessage(Message message) throws Exception {
+        // Store the structured provider-facing message, not just display text, so
+        // replay can preserve assistant tool calls and tool observations.
         ObjectNode node = mapper.createObjectNode();
         node.put("ts", DateTimeFormatter.ISO_INSTANT.format(Instant.now()));
         node.put("type", "message");
@@ -124,6 +132,7 @@ public class JsonlSessionStore implements SessionStore {
                 }
                 JsonNode node = mapper.readTree(line);
                 if ("message".equals(node.path("type").asText())) {
+                    // Current format: structured message payload.
                     JsonNode message = node.path("message");
                     String role = message.path("role").asText();
                     String content = message.path("content").isNull() ? null : message.path("content").asText();
@@ -150,6 +159,8 @@ public class JsonlSessionStore implements SessionStore {
                         messages.add(Message.tool(message.path("tool_call_id").asText(), content));
                     }
                 } else {
+                    // Backward compatibility for older logs that only stored
+                    // user text events.
                     String type = node.path("type").asText();
                     String content = node.path("content").asText("");
                     if ("user".equals(type)) {

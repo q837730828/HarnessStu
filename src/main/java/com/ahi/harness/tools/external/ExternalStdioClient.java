@@ -1,6 +1,7 @@
 package com.ahi.harness.tools.external;
 
 import com.ahi.harness.config.HarnessSettings;
+import com.ahi.harness.process.Utf8Process;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -34,6 +35,7 @@ public class ExternalStdioClient {
 
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(workspace);
+        Utf8Process.apply(builder);
         builder.redirectErrorStream(true);
         Process process = builder.start();
 

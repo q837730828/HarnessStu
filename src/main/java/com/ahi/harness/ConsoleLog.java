@@ -84,6 +84,9 @@ public class ConsoleLog {
         if ("HOOK".equals(stage)) {
             return "HOOK/\u94a9\u5b50";
         }
+        if ("CONTEXT".equals(stage)) {
+            return "CONTEXT/\u4e0a\u4e0b\u6587";
+        }
         if ("EXTERNAL".equals(stage)) {
             return "EXTERNAL/\u5916\u90e8\u5de5\u5177";
         }

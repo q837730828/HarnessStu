@@ -6,6 +6,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Ordered registry of tools exposed to the model.
+ *
+ * LinkedHashMap preserves registration order, which keeps model request JSON and
+ * logs easier to compare between runs.
+ */
 public class ToolRegistry {
     private final Map<String, Tool> tools = new LinkedHashMap<String, Tool>();
 

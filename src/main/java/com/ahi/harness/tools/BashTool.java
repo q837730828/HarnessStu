@@ -4,11 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import com.ahi.harness.ConsoleLog;
+import com.ahi.harness.process.Utf8Process;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -17,6 +18,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Validation command runner.
+ *
+ * PermissionPolicy decides whether a command is allowed; this class focuses on
+ * UTF-8 PowerShell execution, timeout handling, and returning structured output.
+ */
 public class BashTool implements Tool {
     private static final int MAX_CHARS = 12000;
     private final File workspace;
@@ -59,6 +66,8 @@ public class BashTool implements Tool {
         int timeoutSeconds = parseTimeout(arguments.path("timeout_seconds").asText(String.valueOf(defaultTimeoutSeconds)));
         String purpose = arguments.path("purpose").asText("");
 
+        // Prefix every command with UTF-8 setup so Chinese paths/output are not
+        // mojibake in PowerShell.
         List<String> fullCommand = new ArrayList<String>();
         fullCommand.add("powershell");
         fullCommand.add("-NoProfile");
@@ -76,15 +85,18 @@ public class BashTool implements Tool {
 
         ProcessBuilder builder = new ProcessBuilder(fullCommand);
         builder.directory(workspace);
+        Utf8Process.apply(builder);
         builder.redirectErrorStream(true);
         Process process = builder.start();
 
+        // Read output on a separate thread so a chatty process cannot block on a
+        // full stdout pipe while waitFor is running.
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<String> outputFuture = executor.submit(new Callable<String>() {
             @Override
             public String call() throws Exception {
                 StringBuilder out = new StringBuilder();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), Charset.forName("UTF-8")));
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
                 String line;
                 while ((line = reader.readLine()) != null) {
                     if (out.length() < MAX_CHARS) {
@@ -117,6 +129,7 @@ public class BashTool implements Tool {
         String out = outputFuture.get(5, TimeUnit.SECONDS);
         executor.shutdownNow();
 
+        // Nonzero exits are observations for the model, not Java exceptions.
         int exit = process.exitValue();
         long elapsed = System.currentTimeMillis() - started;
         String text = "command=" + command + "\n"

@@ -10,13 +10,20 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Runtime configuration loaded from .harness/settings.json with conservative
+ * defaults. Environment variables only override model endpoint settings.
+ */
 public class HarnessSettings {
     private String model = "deepseek-v4-flash";
     private String baseUrl = "https://api.deepseek.com";
     private int maxSteps = 48;
     private int compactMaxMessages = 40;
     private int compactKeepRecentMessages = 16;
+    private int compactMaxTokens = 60000;
+    private int observationMaxActiveChars = 12000;
     private boolean logJsonBodies = true;
+    private String permissionMode = "strict";
     private int bashDefaultTimeoutSeconds = 60;
     private int bashMaxTimeoutSeconds = 300;
     private List<ExternalToolServer> externalTools = new ArrayList<ExternalToolServer>();
@@ -38,6 +45,7 @@ public class HarnessSettings {
             "invoke-webrequest", "iwr ", "curl ", "wget ",
             "start-process", "invoke-expression", "iex "
     ));
+    private List<HookCommand> hooks = new ArrayList<HookCommand>();
 
     public static HarnessSettings load(File workspace) throws Exception {
         HarnessSettings settings = new HarnessSettings();
@@ -47,18 +55,24 @@ public class HarnessSettings {
         }
         ObjectMapper mapper = new ObjectMapper();
         JsonNode root = mapper.readTree(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+        // Each read keeps the previous default if the field is absent or typed
+        // differently. That makes partial settings files cheap to maintain.
         settings.model = text(root, "model", settings.model);
         settings.baseUrl = text(root, "base_url", settings.baseUrl);
         settings.maxSteps = integer(root, "max_steps", settings.maxSteps);
         settings.compactMaxMessages = integer(root, "compact_max_messages", settings.compactMaxMessages);
         settings.compactKeepRecentMessages = integer(root, "compact_keep_recent_messages", settings.compactKeepRecentMessages);
+        settings.compactMaxTokens = integer(root, "compact_max_tokens", settings.compactMaxTokens);
+        settings.observationMaxActiveChars = integer(root, "observation_max_active_chars", settings.observationMaxActiveChars);
         settings.logJsonBodies = bool(root, "log_json_bodies", settings.logJsonBodies);
+        settings.permissionMode = text(root, "permission_mode", settings.permissionMode);
         settings.bashDefaultTimeoutSeconds = integer(root, "bash_default_timeout_seconds", settings.bashDefaultTimeoutSeconds);
         settings.bashMaxTimeoutSeconds = integer(root, "bash_max_timeout_seconds", settings.bashMaxTimeoutSeconds);
         settings.bashAllowedPrefixes = strings(root, "bash_allowed_prefixes", settings.bashAllowedPrefixes);
         settings.bashBlockedTokens = strings(root, "bash_blocked_tokens", settings.bashBlockedTokens);
         settings.externalTools = externalTools(root.path("external_tools"));
         settings.externalToolAllowlist = strings(root, "external_tool_allowlist", settings.externalToolAllowlist);
+        settings.hooks = hooks(root.path("hooks"));
         return settings;
     }
 
@@ -82,8 +96,20 @@ public class HarnessSettings {
         return compactKeepRecentMessages;
     }
 
+    public int compactMaxTokens() {
+        return compactMaxTokens;
+    }
+
+    public int observationMaxActiveChars() {
+        return observationMaxActiveChars;
+    }
+
     public boolean logJsonBodies() {
         return logJsonBodies;
+    }
+
+    public String permissionMode() {
+        return permissionMode;
     }
 
     public int bashDefaultTimeoutSeconds() {
@@ -108,6 +134,10 @@ public class HarnessSettings {
 
     public List<String> externalToolAllowlist() {
         return externalToolAllowlist;
+    }
+
+    public List<HookCommand> hooks() {
+        return hooks;
     }
 
     private static String env(String key, String fallback) {
@@ -156,6 +186,8 @@ public class HarnessSettings {
             String url = text(item, "url", "");
             String protocol = text(item, "protocol", "simple");
             List<String> args = strings(item, "args", new ArrayList<String>());
+            // Stdio servers need a command; Streamable HTTP servers need a URL.
+            // Both are normalized into the same ExternalToolServer shape.
             if (!name.trim().isEmpty() && "stdio".equals(type) && !command.trim().isEmpty()) {
                 servers.add(new ExternalToolServer(name, type, protocol, command, args, url));
             }
@@ -164,6 +196,36 @@ public class HarnessSettings {
             }
         }
         return servers;
+    }
+
+    private static List<HookCommand> hooks(JsonNode node) {
+        List<HookCommand> hooks = new ArrayList<HookCommand>();
+        if (!node.isArray()) {
+            return hooks;
+        }
+        for (JsonNode item : node) {
+            String event = text(item, "event", "");
+            String command = text(item, "command", "");
+            String script = text(item, "script", "");
+            List<String> args = strings(item, "args", new ArrayList<String>());
+            List<String> tools = hookTools(item);
+            boolean blocking = bool(item, "blocking", false);
+            int timeoutSeconds = integer(item, "timeout_seconds", 30);
+            // A hook may be an inline command or a workspace-relative script.
+            if (!event.trim().isEmpty() && (!command.trim().isEmpty() || !script.trim().isEmpty())) {
+                hooks.add(new HookCommand(event, command, script, args, tools, blocking, Math.max(1, Math.min(timeoutSeconds, 120))));
+            }
+        }
+        return hooks;
+    }
+
+    private static List<String> hookTools(JsonNode item) {
+        List<String> tools = strings(item, "tools", new ArrayList<String>());
+        String tool = text(item, "tool", "");
+        if (!tool.trim().isEmpty() && !tools.contains(tool.trim())) {
+            tools.add(tool.trim());
+        }
+        return tools;
     }
 
     public static class ExternalToolServer {
@@ -205,6 +267,58 @@ public class HarnessSettings {
 
         public String url() {
             return url;
+        }
+    }
+
+    public static class HookCommand {
+        private final String event;
+        private final String command;
+        private final String script;
+        private final List<String> args;
+        private final List<String> tools;
+        private final boolean blocking;
+        private final int timeoutSeconds;
+
+        public HookCommand(String event, String command, boolean blocking, int timeoutSeconds) {
+            this(event, command, "", new ArrayList<String>(), new ArrayList<String>(), blocking, timeoutSeconds);
+        }
+
+        public HookCommand(String event, String command, String script, List<String> args, List<String> tools, boolean blocking, int timeoutSeconds) {
+            this.event = event;
+            this.command = command;
+            this.script = script;
+            this.args = args == null ? new ArrayList<String>() : args;
+            this.tools = tools == null ? new ArrayList<String>() : tools;
+            this.blocking = blocking;
+            this.timeoutSeconds = timeoutSeconds;
+        }
+
+        public String event() {
+            return event;
+        }
+
+        public String command() {
+            return command;
+        }
+
+        public String script() {
+            return script;
+        }
+
+        public List<String> args() {
+            return args;
+        }
+
+        public List<String> tools() {
+            return tools;
+        }
+
+        public boolean blocking() {
+            return blocking;
+        }
+
+        public int timeoutSeconds() {
+            return timeoutSeconds;
         }
     }
 }

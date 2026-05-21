@@ -3,6 +3,9 @@ package com.ahi.harness.core;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * Parsed assistant response returned by a ModelClient.
+ */
 public class ModelResponse {
     private final String content;
     private final String reasoningContent;

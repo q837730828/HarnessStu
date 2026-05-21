@@ -2,6 +2,12 @@ package com.ahi.harness.core;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+/**
+ * One function/tool call requested by the model.
+ *
+ * arguments is parsed JSON for tool execution; argumentsJson preserves the exact
+ * provider payload for logging and session replay.
+ */
 public class ToolCall {
     private final String id;
     private final String name;

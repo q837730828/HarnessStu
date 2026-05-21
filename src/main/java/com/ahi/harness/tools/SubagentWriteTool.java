@@ -58,6 +58,11 @@ public class SubagentWriteTool implements Tool {
         tools.set("items", item);
         JsonSchemas.addOptional(schema, "tools", tools);
         JsonSchemas.addOptional(schema, "max_steps", JsonSchemas.stringProperty("Optional max steps, clamped to 1..16. Defaults to 8."));
+        JsonSchemas.addOptional(schema, "memory", JsonSchemas.stringProperty("Optional true/false. Defaults to true."));
+        JsonSchemas.addOptional(schema, "permission_mode", JsonSchemas.stringProperty("Optional subagent permission mode metadata. Defaults to strict."));
+        JsonSchemas.addOptional(schema, "model", JsonSchemas.stringProperty("Optional model metadata for future per-subagent model routing."));
+        JsonSchemas.addOptional(schema, "mcp_servers", JsonSchemas.stringProperty("Optional comma-separated MCP server metadata."));
+        JsonSchemas.addOptional(schema, "disallowed_tools", JsonSchemas.stringProperty("Optional comma-separated read-only tools to subtract from tools."));
         return schema;
     }
 
@@ -89,6 +94,16 @@ public class SubagentWriteTool implements Tool {
             return ToolResult.failure(e.getMessage());
         }
         int maxSteps = parseMaxSteps(arguments.path("max_steps").asText(""));
+        boolean memory = parseBool(arguments.path("memory").asText("true"));
+        String permissionMode = arguments.path("permission_mode").asText("strict").trim();
+        String model = singleLine(arguments.path("model").asText("").trim());
+        String mcpServers = safeNameList(arguments.path("mcp_servers").asText(""));
+        String disallowedTools;
+        try {
+            disallowedTools = joinTools(parseSafeToolText(arguments.path("disallowed_tools").asText("")));
+        } catch (IllegalArgumentException e) {
+            return ToolResult.failure(e.getMessage());
+        }
         File directory = new File(workspace, ".harness/agents").getCanonicalFile();
         File file = new File(directory, name + ".md").getCanonicalFile();
         if (!isInside(directory, file)) {
@@ -98,7 +113,7 @@ public class SubagentWriteTool implements Tool {
             return ToolResult.failure("Cannot create directory: " + relative(directory));
         }
 
-        String markdown = render(name, description, tools, maxSteps, prompt);
+        String markdown = render(name, description, tools, maxSteps, memory, permissionMode, model, mcpServers, disallowedTools, prompt);
         Files.write(file.toPath(), markdown.getBytes(StandardCharsets.UTF_8));
         log.block("SUBAGENT", "Wrote project subagent", markdown);
         return ToolResult.success("Saved project subagent: " + relative(file)
@@ -136,13 +151,37 @@ public class SubagentWriteTool implements Tool {
         }
     }
 
-    private String render(String name, String description, List<String> tools, int maxSteps, String prompt) {
+    private boolean parseBool(String value) {
+        return !"false".equalsIgnoreCase(value == null ? "" : value.trim());
+    }
+
+    private String render(String name,
+                          String description,
+                          List<String> tools,
+                          int maxSteps,
+                          boolean memory,
+                          String permissionMode,
+                          String model,
+                          String mcpServers,
+                          String disallowedTools,
+                          String prompt) {
         StringBuilder out = new StringBuilder();
         out.append("---\n");
         out.append("name: ").append(name).append('\n');
         out.append("description: ").append(singleLine(description)).append('\n');
         out.append("tools: ").append(joinTools(tools)).append('\n');
         out.append("max_steps: ").append(maxSteps).append('\n');
+        out.append("memory: ").append(memory).append('\n');
+        out.append("permission_mode: ").append(singleLine(permissionMode)).append('\n');
+        if (!model.isEmpty()) {
+            out.append("model: ").append(model).append('\n');
+        }
+        if (!mcpServers.isEmpty()) {
+            out.append("mcp_servers: ").append(mcpServers).append('\n');
+        }
+        if (!disallowedTools.isEmpty()) {
+            out.append("disallowed_tools: ").append(disallowedTools).append('\n');
+        }
         out.append("---\n\n");
         out.append(prompt).append('\n');
         return out.toString();
@@ -161,6 +200,45 @@ public class SubagentWriteTool implements Tool {
 
     private String singleLine(String value) {
         return value.replace("\r\n", " ").replace('\n', ' ').replace('\r', ' ').trim();
+    }
+
+    private List<String> parseSafeToolText(String value) {
+        List<String> tools = new ArrayList<String>();
+        if (value == null || value.trim().isEmpty()) {
+            return tools;
+        }
+        String normalized = value.replace("[", "").replace("]", "");
+        String[] parts = normalized.split(",");
+        for (String part : parts) {
+            String tool = part.trim();
+            if (!SAFE_TOOLS.contains(tool)) {
+                throw new IllegalArgumentException("tool is not allowed for project subagents: " + tool);
+            }
+            if (!tools.contains(tool)) {
+                tools.add(tool);
+            }
+        }
+        return tools;
+    }
+
+    private String safeNameList(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder();
+        String normalized = value.replace("[", "").replace("]", "");
+        String[] parts = normalized.split(",");
+        for (String part : parts) {
+            String item = part.trim();
+            if (!item.matches("[A-Za-z0-9_-]+")) {
+                continue;
+            }
+            if (out.length() > 0) {
+                out.append(", ");
+            }
+            out.append(item);
+        }
+        return out.toString();
     }
 
     private boolean isInside(File directory, File file) {

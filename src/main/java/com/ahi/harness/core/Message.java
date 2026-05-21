@@ -3,6 +3,12 @@ package com.ahi.harness.core;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * Provider-facing conversation message.
+ *
+ * It carries the normal chat roles plus provider-specific fields needed for
+ * tool-call replay and DeepSeek reasoning replay.
+ */
 public class Message {
     private final String role;
     private final String content;

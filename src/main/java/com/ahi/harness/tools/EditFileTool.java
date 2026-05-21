@@ -13,6 +13,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Safe text editing primitive.
+ *
+ * The model must provide an exact old_text block. That makes edits auditable and
+ * avoids broad "rewrite this file" behavior.
+ */
 public class EditFileTool implements Tool {
     private static final int MAX_FILE_CHARS = 300000;
     private static final int MAX_DIFF_CHARS = 20000;
@@ -76,6 +82,7 @@ public class EditFileTool implements Tool {
         String original = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
         int count = countOccurrences(original, oldText);
         if (count != expected) {
+            // A non-unique match is usually a stale read or an imprecise patch.
             return ToolResult.failure("Expected " + expected + " replacement(s), but found " + count
                     + ". The model should read_file again and provide a more exact old_text block.");
         }
@@ -88,6 +95,8 @@ public class EditFileTool implements Tool {
         String diff = unifiedDiff(relative(file), original, updated);
         log.block("DIFF", "Diff before write / 写入前 diff", trim(diff, MAX_DIFF_CHARS));
 
+        // Backup first, then write. If verification fails later, the user has a
+        // local recovery file under .harness/backups.
         File backup = backupFile(file);
         Files.write(file.toPath(), updated.getBytes(StandardCharsets.UTF_8));
 
@@ -153,6 +162,8 @@ public class EditFileTool implements Tool {
     }
 
     private String unifiedDiff(String path, String before, String after) {
+        // This is a compact educational diff, not a full Myers implementation.
+        // It shows the changed window plus a few context lines.
         List<String> oldLines = splitLines(before);
         List<String> newLines = splitLines(after);
         int prefix = commonPrefix(oldLines, newLines);
