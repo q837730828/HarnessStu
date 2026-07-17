@@ -23,6 +23,15 @@ public class ToolResult {
         return new ToolResult(false, content);
     }
 
+    /** Runtime protocol recording needs the normalized outcome without parsing text. */
+    public boolean success() {
+        return success;
+    }
+
+    public String content() {
+        return content;
+    }
+
     public String toObservation() {
         return (success ? "OK" : "ERROR") + "\n" + content;
     }

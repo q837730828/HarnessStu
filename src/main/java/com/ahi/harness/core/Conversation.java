@@ -12,6 +12,8 @@ import java.util.List;
  */
 public class Conversation {
     private final List<Message> messages = new ArrayList<Message>();
+    private String recoveredFromRunId;
+    private String recoveredFromCheckpointId;
 
     public void addSystem(String content) {
         messages.add(Message.system(content));
@@ -118,6 +120,25 @@ public class Conversation {
 
     public List<Message> messages() {
         return Collections.unmodifiableList(messages);
+    }
+
+    /** Mark that the next Run is a traceable branch from a loaded Checkpoint. */
+    public void markRecoveredFrom(String runId, String checkpointId) {
+        this.recoveredFromRunId = runId;
+        this.recoveredFromCheckpointId = checkpointId;
+    }
+
+    public String recoveredFromRunId() {
+        return recoveredFromRunId;
+    }
+
+    public String recoveredFromCheckpointId() {
+        return recoveredFromCheckpointId;
+    }
+
+    public void clearRecoveryMarker() {
+        recoveredFromRunId = null;
+        recoveredFromCheckpointId = null;
     }
 
     private String trim(String value, int maxChars) {

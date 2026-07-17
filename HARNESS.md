@@ -18,6 +18,9 @@ Important modules:
 
 - `Main`: wires the runtime together.
 - `AgentLoop`: owns the model/tool/observation loop.
+- `RunRecorder`: maps loop actions to explicit protocol resources and events.
+- `JsonlRuntimeStore`: persists Agent, Thread, Run, Step, Event, Artifact,
+  Checkpoint, and Interrupt resources under `.harness/runtime/`.
 - `DeepSeekClient`: sends OpenAI-compatible chat completion requests to DeepSeek.
 - `ToolRegistry`: exposes tools to the model.
 - `PermissionPolicy`: decides whether a tool call is allowed.
@@ -52,6 +55,10 @@ Never edit generated, private, or metadata paths:
 - `.harness/`
 - `.idea/`
 - `target/`
+
+The read-only context tools may inspect `.harness/compactions`,
+`.harness/observations`, and `.harness/runtime`; other harness metadata stays
+private.
 
 Do not use shell control operators in `bash` commands:
 
@@ -115,6 +122,10 @@ Current completed MVPs:
 - MVP11: richer subagent frontmatter for memory, permission mode, model, MCP server metadata, and disallowed tools
 - MVP12: executable runtime hooks with optional blocking behavior
 - MVP13: traceable compaction archives written to `.harness/compactions/*.jsonl`
+- MVP14: explicit Agent Protocol resources with Run/Step state machines,
+  provider-neutral Message/Part, ordered resumable events, artifacts, message
+  checkpoints, approval interrupts, trace/error records, Run query/cancellation/
+  timeout controls, and checkpoint recovery lineage
 
 ## Project Subagents
 
@@ -202,3 +213,5 @@ Possible next direction:
 - A fuller MCP implementation with server-initiated notifications, progress, cancellation, roots, sampling, and richer Streamable HTTP resumability
 - Richer todo integration with session resume, compaction summaries, and slash-command rendering
 - Subagent slash commands and richer per-subagent permission profiles
+- Network bindings for protocol resources (REST + resumable SSE), distributed
+  scheduling, and multi-writer-safe storage

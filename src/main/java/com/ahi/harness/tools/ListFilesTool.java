@@ -90,9 +90,9 @@ public class ListFilesTool implements Tool {
             return false;
         }
         if (file.getParentFile() != null && ".harness".equals(file.getParentFile().getName())) {
-            return !"compactions".equals(name);
+            return !"compactions".equals(name) && !"observations".equals(name) && !"runtime".equals(name);
         }
-        if (isInsideHarnessButNotCompactions(file)) {
+        if (isInsideHarnessButNotReadableRuntime(file)) {
             return true;
         }
         return ".git".equals(name)
@@ -101,14 +101,14 @@ public class ListFilesTool implements Tool {
                 || ".idea".equals(name);
     }
 
-    private boolean isInsideHarnessButNotCompactions(File file) {
+    private boolean isInsideHarnessButNotReadableRuntime(File file) {
         try {
             File harness = new File(workspace, ".harness").getCanonicalFile();
             File target = file.getCanonicalFile();
             String harnessPath = harness.getPath();
             String targetPath = target.getPath();
             if (!targetPath.equals(harnessPath) && targetPath.startsWith(harnessPath + File.separator)) {
-                return !WorkspacePaths.isCompactionArchivePath(workspace, target);
+                return !WorkspacePaths.isReadableHarnessArchivePath(workspace, target);
             }
         } catch (Exception ignored) {
         }

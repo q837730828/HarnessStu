@@ -2,6 +2,7 @@
   "model": "deepseek-v4-flash",
   "base_url": "https://api.deepseek.com",
   "max_steps": 48,
+  "run_timeout_seconds": 0,
   "compact_max_messages": 40,
   "compact_keep_recent_messages": 16,
   "compact_max_tokens": 60000,

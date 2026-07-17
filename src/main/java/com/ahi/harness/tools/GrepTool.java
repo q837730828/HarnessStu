@@ -103,7 +103,7 @@ public class GrepTool implements Tool {
             return false;
         }
         if (file.getParentFile() != null && ".harness".equals(file.getParentFile().getName())) {
-            return !"compactions".equals(name) && !"observations".equals(name);
+            return !"compactions".equals(name) && !"observations".equals(name) && !"runtime".equals(name);
         }
         if (isInsideHarnessButNotCompactions(file)) {
             return true;

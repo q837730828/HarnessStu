@@ -18,6 +18,9 @@ public class HarnessSettings {
     private String model = "deepseek-v4-flash";
     private String baseUrl = "https://api.deepseek.com";
     private int maxSteps = 48;
+    // 0 means no wall-clock deadline. A positive value is enforced at the
+    // AgentLoop's cooperative safe boundaries (before model/tool work).
+    private int runTimeoutSeconds = 0;
     private int compactMaxMessages = 40;
     private int compactKeepRecentMessages = 16;
     private int compactMaxTokens = 60000;
@@ -60,6 +63,7 @@ public class HarnessSettings {
         settings.model = text(root, "model", settings.model);
         settings.baseUrl = text(root, "base_url", settings.baseUrl);
         settings.maxSteps = integer(root, "max_steps", settings.maxSteps);
+        settings.runTimeoutSeconds = integer(root, "run_timeout_seconds", settings.runTimeoutSeconds);
         settings.compactMaxMessages = integer(root, "compact_max_messages", settings.compactMaxMessages);
         settings.compactKeepRecentMessages = integer(root, "compact_keep_recent_messages", settings.compactKeepRecentMessages);
         settings.compactMaxTokens = integer(root, "compact_max_tokens", settings.compactMaxTokens);
@@ -86,6 +90,10 @@ public class HarnessSettings {
 
     public int maxSteps() {
         return maxSteps;
+    }
+
+    public int runTimeoutSeconds() {
+        return Math.max(0, runTimeoutSeconds);
     }
 
     public int compactMaxMessages() {

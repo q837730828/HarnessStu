@@ -5,6 +5,10 @@ import com.ahi.harness.config.HarnessSettings;
 import com.ahi.harness.core.Conversation;
 import com.ahi.harness.core.Message;
 import com.ahi.harness.process.Utf8Process;
+import com.ahi.harness.protocol.AgentRun;
+import com.ahi.harness.protocol.CancellationRequest;
+import com.ahi.harness.protocol.RuntimeEvent;
+import com.ahi.harness.runtime.RuntimeStore;
 import com.ahi.harness.session.JsonlSessionStore;
 import com.ahi.harness.tools.Tool;
 import com.ahi.harness.tools.ToolRegistry;
@@ -28,6 +32,7 @@ public class SlashCommandHandler {
     private final int compactKeepRecentMessages;
     private final List<HarnessSettings.ExternalToolServer> externalServers;
     private final McpServerManager mcpManager;
+    private final RuntimeStore runtimeStore;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public SlashCommandHandler(File workspace,
@@ -36,7 +41,8 @@ public class SlashCommandHandler {
                                ConsoleLog log,
                                int compactKeepRecentMessages,
                                List<HarnessSettings.ExternalToolServer> externalServers,
-                               McpServerManager mcpManager) {
+                               McpServerManager mcpManager,
+                               RuntimeStore runtimeStore) {
         this.workspace = workspace;
         this.sessionDirectory = sessionDirectory;
         this.tools = tools;
@@ -44,6 +50,7 @@ public class SlashCommandHandler {
         this.compactKeepRecentMessages = compactKeepRecentMessages;
         this.externalServers = externalServers;
         this.mcpManager = mcpManager;
+        this.runtimeStore = runtimeStore;
     }
 
     public boolean handle(String line, Conversation conversation) throws Exception {
@@ -52,7 +59,7 @@ public class SlashCommandHandler {
             return false;
         }
         if ("/help".equals(trimmed)) {
-            log.block("HARNESS", "Slash commands", "/help\n/tools\n/status\n/diff\n/sessions\n/resume latest\n/resume <session-file>\n/compact\n/reload\n/mcp/status\n/mcp/reload <server|all>\n/mcp/resources [server]\n/mcp/read <server> <uri>\n/mcp/prompts [server]\n/mcp/get-prompt <server> <name> [json-args]\n/exit");
+            log.block("HARNESS", "Slash commands", "/help\n/tools\n/status\n/diff\n/sessions\n/resume latest\n/resume <session-file>\n/runs\n/run <run-id>\n/run/events <run-id> [after-sequence]\n/run/cancel <run-id> [reason]\n/checkpoint/load <run-id> <checkpoint-id>\n/compact\n/reload\n/mcp/status\n/mcp/reload <server|all>\n/mcp/resources [server]\n/mcp/read <server> <uri>\n/mcp/prompts [server]\n/mcp/get-prompt <server> <name> [json-args]\n/exit");
             return true;
         }
         if ("/tools".equals(trimmed)) {
@@ -81,6 +88,89 @@ public class SlashCommandHandler {
                 out.append(session.getName()).append('\n');
             }
             log.block("HARNESS", "Sessions", out.length() == 0 ? "No sessions found." : out.toString());
+            return true;
+        }
+        if ("/runs".equals(trimmed)) {
+            StringBuilder out = new StringBuilder();
+            for (AgentRun run : runtimeStore.listRuns()) {
+                out.append(run.getId())
+                        .append(" status=").append(run.getStatus())
+                        .append(" thread=").append(run.getThreadId())
+                        .append(" model_calls=").append(run.getModelCalls())
+                        .append('/').append(run.getMaxModelCalls())
+                        .append(" created=").append(run.getCreatedAt())
+                        .append('\n');
+            }
+            log.block("PROTOCOL", "Runs", out.length() == 0 ? "No Runs found." : out.toString());
+            return true;
+        }
+        if (trimmed.startsWith("/run/events ")) {
+            String[] parts = trimmed.split("\\s+", 4);
+            if (parts.length < 2 || parts[1].trim().isEmpty()) {
+                log.error("HARNESS", "Usage: /run/events <run-id> [after-sequence]");
+                return true;
+            }
+            long after = 0;
+            if (parts.length >= 3) {
+                try {
+                    after = Long.parseLong(parts[2]);
+                } catch (NumberFormatException ignored) {
+                    log.error("HARNESS", "after-sequence must be an integer");
+                    return true;
+                }
+            }
+            List<RuntimeEvent> events = runtimeStore.readEvents(parts[1], after);
+            log.block("PROTOCOL", "Events after sequence " + after,
+                    mapper.writerWithDefaultPrettyPrinter().writeValueAsString(events));
+            return true;
+        }
+        if (trimmed.startsWith("/run/cancel ")) {
+            String[] parts = trimmed.split("\\s+", 3);
+            if (parts.length < 2 || parts[1].trim().isEmpty()) {
+                log.error("HARNESS", "Usage: /run/cancel <run-id> [reason]");
+                return true;
+            }
+            AgentRun run = runtimeStore.loadRun(parts[1]);
+            if (run == null) {
+                log.error("HARNESS", "Run not found: " + parts[1]);
+                return true;
+            }
+            if (run.isTerminal()) {
+                log.error("HARNESS", "Run is already terminal: " + run.getStatus());
+                return true;
+            }
+            String reason = parts.length >= 3 ? parts[2] : "cancel requested by user";
+            CancellationRequest request = new CancellationRequest(run.getId(), reason);
+            runtimeStore.saveCancellationRequest(request);
+            log.info("PROTOCOL", "Cancellation requested: run_id=" + run.getId() + ", request_id=" + request.getId());
+            return true;
+        }
+        if (trimmed.startsWith("/run ")) {
+            String id = trimmed.substring("/run ".length()).trim();
+            AgentRun run = runtimeStore.loadRun(id);
+            if (run == null) {
+                log.error("HARNESS", "Run not found: " + id);
+            } else {
+                log.block("PROTOCOL", "Run " + id,
+                        mapper.writerWithDefaultPrettyPrinter().writeValueAsString(run));
+            }
+            return true;
+        }
+        if (trimmed.startsWith("/checkpoint/load ")) {
+            String[] parts = trimmed.split("\\s+", 3);
+            if (parts.length < 3) {
+                log.error("HARNESS", "Usage: /checkpoint/load <run-id> <checkpoint-id>");
+                return true;
+            }
+            List<Message> messages = runtimeStore.loadCheckpointMessages(parts[1], parts[2]);
+            if (messages.isEmpty()) {
+                log.error("HARNESS", "Checkpoint not found or empty: " + parts[2]);
+                return true;
+            }
+            conversation.replaceMessages(messages);
+            conversation.markRecoveredFrom(parts[1], parts[2]);
+            log.info("PROTOCOL", "Loaded " + messages.size()
+                    + " checkpoint message(s). The next prompt creates a new Run from this recovered context.");
             return true;
         }
         if (trimmed.startsWith("/resume")) {

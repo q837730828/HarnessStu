@@ -39,10 +39,17 @@ final class WorkspacePaths {
         return isHarnessArchivePath(workspace, file, "observations");
     }
 
+    static boolean isRuntimeProtocolPath(File workspace, File file) {
+        return isHarnessArchivePath(workspace, file, "runtime");
+    }
+
     static boolean isReadableHarnessArchivePath(File workspace, File file) {
-        // Most .harness files are private runtime state. Archives are the
-        // explicit recovery path referenced by compaction/observation summaries.
-        return isCompactionArchivePath(workspace, file) || isObservationArchivePath(workspace, file);
+        // Most .harness files are private runtime state. Recovery archives and
+        // explicit protocol records are readable because prompts/docs point the
+        // learner back to them for inspection and checkpoint recovery.
+        return isCompactionArchivePath(workspace, file)
+                || isObservationArchivePath(workspace, file)
+                || isRuntimeProtocolPath(workspace, file);
     }
 
     private static boolean isHarnessArchivePath(File workspace, File file, String directoryName) {

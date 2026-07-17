@@ -10,6 +10,10 @@ import com.ahi.harness.model.DeepSeekClient;
 import com.ahi.harness.permission.PermissionPolicy;
 import com.ahi.harness.permission.PermissionPrompter;
 import com.ahi.harness.permission.PermissionStore;
+import com.ahi.harness.protocol.AgentIdentity;
+import com.ahi.harness.protocol.AgentThread;
+import com.ahi.harness.runtime.JsonlRuntimeStore;
+import com.ahi.harness.runtime.RunRecorder;
 import com.ahi.harness.session.CompactionArchiveStore;
 import com.ahi.harness.session.JsonlSessionStore;
 import com.ahi.harness.session.ObservationArchiveStore;
@@ -27,6 +31,8 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Program entrypoint. This class intentionally wires the runtime by hand so the
@@ -91,6 +97,15 @@ public class Main {
         JsonlSessionStore sessionStore = new JsonlSessionStore(sessionDirectory, log);
         TraceStore traceStore = new TraceStore(workspace);
         log.info("HARNESS", "trace = " + traceStore.path());
+
+        // Agent and Thread used to be implicit in the process and Conversation.
+        // They are now stable protocol resources shared by every Run created in
+        // this interactive session.
+        AgentIdentity agent = AgentIdentity.create("HarnessStu", settings.model(), toolNames(registry));
+        AgentThread thread = AgentThread.create("HarnessStu interactive session");
+        JsonlRuntimeStore runtimeStore = new JsonlRuntimeStore(workspace);
+        RunRecorder runRecorder = new RunRecorder(agent, thread, runtimeStore);
+        log.info("PROTOCOL", "agent_id=" + agent.getId() + ", thread_id=" + thread.getId());
         AgentLoop loop = new AgentLoop(
                 model,
                 registry,
@@ -105,7 +120,9 @@ public class Main {
                 settings.maxSteps(),
                 settings.compactMaxMessages(),
                 settings.compactKeepRecentMessages(),
-                settings.compactMaxTokens()
+                settings.compactMaxTokens(),
+                runRecorder,
+                settings.runTimeoutSeconds()
         );
         SlashCommandHandler slash = new SlashCommandHandler(
                 workspace,
@@ -114,7 +131,8 @@ public class Main {
                 log,
                 settings.compactKeepRecentMessages(),
                 settings.externalTools(),
-                mcpManager
+                mcpManager,
+                runtimeStore
         );
 
         String oneShot = joinArgs(args);
@@ -193,5 +211,13 @@ public class Main {
             builder.append(arg);
         }
         return builder.toString();
+    }
+
+    private static List<String> toolNames(ToolRegistry registry) {
+        List<String> names = new ArrayList<String>();
+        for (Tool tool : registry.all()) {
+            names.add(tool.name());
+        }
+        return names;
     }
 }

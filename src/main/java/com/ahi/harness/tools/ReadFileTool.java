@@ -44,7 +44,7 @@ public class ReadFileTool implements Tool {
             return ToolResult.failure("Path is not a file: " + path);
         }
         if (path.replace('\\', '/').startsWith(".harness/") && !WorkspacePaths.isReadableHarnessArchivePath(workspace, file)) {
-            return ToolResult.failure("Reading .harness runtime files is blocked except .harness/compactions and .harness/observations archives.");
+            return ToolResult.failure("Reading .harness runtime files is blocked except .harness/compactions, .harness/observations, and .harness/runtime records.");
         }
         List<String> lines = Files.readAllLines(file.toPath(), StandardCharsets.UTF_8);
         StringBuilder out = new StringBuilder();

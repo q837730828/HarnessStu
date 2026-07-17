@@ -8,7 +8,14 @@ import com.ahi.harness.hooks.HookBus;
 import com.ahi.harness.memory.ProjectMemoryLoader;
 import com.ahi.harness.model.ModelClient;
 import com.ahi.harness.permission.PermissionPolicy;
+import com.ahi.harness.protocol.AgentIdentity;
+import com.ahi.harness.protocol.AgentThread;
+import com.ahi.harness.runtime.JsonlRuntimeStore;
+import com.ahi.harness.runtime.RunRecorder;
+import com.ahi.harness.session.CompactionArchiveStore;
 import com.ahi.harness.session.NoopSessionStore;
+import com.ahi.harness.session.ObservationArchiveStore;
+import com.ahi.harness.session.TraceStore;
 import com.ahi.harness.subagent.SubagentDefinition;
 import com.ahi.harness.subagent.SubagentRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -98,6 +105,15 @@ public class SubagentRunTool implements Tool {
 
         Conversation childConversation = new Conversation();
         childConversation.addSystem(systemPrompt(definition));
+        AgentIdentity childAgent = AgentIdentity.create(
+                "subagent:" + definition.name(),
+                definition.model().isEmpty() ? "inherited" : definition.model(),
+                toolNames(childTools)
+        );
+        AgentThread childThread = AgentThread.create("Subagent task: " + trim(task, 80));
+        RunRecorder childRecorder = new RunRecorder(
+                childAgent, childThread, new JsonlRuntimeStore(workspace)
+        );
         AgentLoop loop = new AgentLoop(
                 model,
                 childTools,
@@ -105,9 +121,15 @@ public class SubagentRunTool implements Tool {
                 new NoopSessionStore(),
                 log,
                 new HookBus(log),
+                null,
+                new CompactionArchiveStore(workspace),
+                new ObservationArchiveStore(workspace),
+                new TraceStore(workspace),
                 maxSteps,
                 24,
-                10
+                10,
+                0,
+                childRecorder
         );
         loop.run(childConversation, task);
 
@@ -195,5 +217,13 @@ public class SubagentRunTool implements Tool {
             return value;
         }
         return value.substring(0, maxChars) + "\n...<truncated " + (value.length() - maxChars) + " chars>";
+    }
+
+    private List<String> toolNames(ToolRegistry registry) {
+        List<String> names = new ArrayList<String>();
+        for (Tool tool : registry.all()) {
+            names.add(tool.name());
+        }
+        return names;
     }
 }
